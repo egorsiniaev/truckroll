@@ -66,6 +66,20 @@ Sources: scheduled game days (labelled, for the eval), real-world triggers (wind
 | ENTSO-E day-ahead prices (token) | Charge timing, price-spike shedding |
 | ENTSO-E actual load / wind | Simulated grid operator congestion requests |
 
+## Public page visual
+
+Reference style: an isometric, low-poly site scene in soft whites (a depot with solar roof, a solar carport,
+chargers with vans, battery storage, a grid pylon), with animated dashed lines for power flow, floating labels with
+live bars, and a row of round gauges under an "Energy Management System" heading. Use our own art; the reference
+is for style only (not committed).
+
+- One scene per site, driven by the live API: flow lines speed up or reverse with power, chargers glow by status,
+  faulted ones turn red, the grid line pulses during congestion, the sky follows real weather and time of day.
+- Gauges: solar now, grid cap used, charging load (battery only if we simulate one).
+- Clicking a charger or site opens its state and open incidents; the incident trigger lives here too.
+- Build: SVG + CSS/JS animation first (cheap); Three.js only if time is left.
+- Risk: this is the most likely overrun in week 5. Fallback: a flat 2D version of the same scene.
+
 ## Milestones
 
 Hours are estimates; actuals go in [LOG.md](LOG.md).
