@@ -3,7 +3,7 @@
 A mini charging network on a desk: one real low-voltage charger (ESP32, OCPP 1.6J) and 50 simulated ones,
 with SLOs, chaos testing, an AI triage agent behind a human approval gate, and CRA evidence generated in CI.
 
-Full spec and plan: [SPEC.md](SPEC.md).
+Goals: [GOALS.md](GOALS.md). Plan: [PLAN.md](PLAN.md). Original spec: [SPEC.md](SPEC.md). Hours: [LOG.md](LOG.md).
 
 ## Layout
 
