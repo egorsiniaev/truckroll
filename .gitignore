@@ -1,0 +1,29 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node (simulator)
+node_modules/
+
+# PlatformIO
+.pio/
+.vscode/
+
+# Observability data
+observability/data/
+
+# OS
+.DS_Store
