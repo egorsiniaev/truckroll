@@ -18,8 +18,8 @@ Low voltage only: 12 V DC max. The relay is rated for mains, but it only ever sw
 | RGB LED (or 3 single LEDs) | Status: green Available, blue Charging, red Faulted, amber grid stress | 220 Ω per channel |
 | 3 V LEDs | Extra indicators (Wi-Fi/OCPP connected, contactor closed) | |
 | Raspberry Pi 3B + Logitech webcam | **Camera box**: webcam -> H.264 stream pushed out to the Hetzner relay | Replaces the ESP32-CAM; hardware encode, 720p is fine |
-| Small screen | kW, kWh, price, grid cap on the device | Check the model: SSD1306/SH1106 OLED (I2C) or a 1602 LCD with I2C backpack. Both work |
-| Keyestudio RFID-RC522 + cards | Real badge-in -> `Authorize` | Check the pins: SDA/SCK/MOSI/MISO/RST = SPI (pin plan below); only SDA/SCL = I2C variant, goes on the shared bus |
+| 0.96" OLED | kW, kWh, price, grid cap on the device | Almost always SSD1306, 128x64. 4 pins (VCC GND SCL SDA) = I2C on the shared bus; 6-7 pins = SPI, needs a rewire |
+| Keyestudio RFID-RC522 + cards | Real badge-in -> `Authorize` | SPI. **3.3 V only**, never 5 V. NSS = chip select. IRQ unused |
 | DS18B20 (Keyestudio module) | Hairdryer -> real derate | Module usually has the pull-up on board |
 | DHT11 (Keyestudio) | Enclosure temperature + humidity as extra telemetry | Optional; slow (1 reading / 2 s) |
 | Keyestudio sensor kit | Spares; possible extra fault sources later | |
@@ -47,7 +47,7 @@ Low voltage only: 12 V DC max. The relay is rated for mains, but it only ever sw
 | Fault button | 27 | `INPUT_PULLUP`, to GND |
 | RGB LED R / G / B | 16 / 17 / 4 | LEDC PWM |
 | DS18B20 data | 13 | 4.7 k pull-up to 3.3 V |
-| RC522 SPI SCK / MISO / MOSI / CS / RST | 18 / 19 / 23 / 5 / 14 | later |
+| RC522 SCK / MISO / MOSI / NSS / RST | 18 / 19 / 23 / 5 / 14 | VCC to 3V3, IRQ not connected |
 | Control pilot (stretch) | 34 | ADC1 only; ADC2 is dead with Wi-Fi on |
 
 Avoid GPIO 0, 2, 12, 15 (boot strapping) and 6-11 (flash).
