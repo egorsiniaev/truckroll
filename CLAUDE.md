@@ -1,4 +1,4 @@
-# charger-fleet-copilot
+# truckroll
 
 Spec and weekend plan: `SPEC.md`. Work in the weekend plan order; weekend 1 needs the hardware on the desk,
 software parts can run first. Keep the README honest: publish eval numbers and hours spent, including what the

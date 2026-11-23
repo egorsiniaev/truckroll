@@ -1,4 +1,4 @@
-# Charger fleet ops copilot
+# Truckroll: charger fleet ops copilot
 
 A mini charging network on a desk: one real low-voltage charger (ESP32, OCPP 1.6J) and 50 simulated ones,
 with SLOs, chaos testing, an AI triage agent behind a human approval gate, and CRA evidence generated in CI.
