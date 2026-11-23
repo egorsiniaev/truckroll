@@ -18,19 +18,19 @@ Low voltage only: 12 V DC max. The relay is rated for mains, but it only ever sw
 | RGB LED (or 3 single LEDs) | Status: green Available, blue Charging, red Faulted, amber grid stress | 220 Ω per channel |
 | 3 V LEDs | Extra indicators (Wi-Fi/OCPP connected, contactor closed) | |
 | Raspberry Pi 3B + Logitech webcam | **Camera box**: webcam -> H.264 stream pushed out to the Hetzner relay | Replaces the ESP32-CAM; hardware encode, 720p is fine |
-| 0.96" OLED | kW, kWh, price, grid cap on the device | Almost always SSD1306, 128x64. 4 pins (VCC GND SCL SDA) = I2C on the shared bus; 6-7 pins = SPI, needs a rewire |
+| 0.96" OLED, 4-pin I2C | kW, kWh, price, grid cap on the device | SSD1306 128x64 (try SH1106 driver if the image is shifted). VCC 3V3, SDA 21, SCL 22 |
 | Keyestudio RFID-RC522 + cards | Real badge-in -> `Authorize` | SPI. **3.3 V only**, never 5 V. NSS = chip select. IRQ unused |
 | DS18B20 (Keyestudio module) | Hairdryer -> real derate | Module usually has the pull-up on board |
 | DHT11 (Keyestudio) | Enclosure temperature + humidity as extra telemetry | Optional; slow (1 reading / 2 s) |
 | Keyestudio sensor kit | Spares; possible extra fault sources later | |
 | 12 V LED strip or lamp | The "car" that dims | Finding it; needs a 12 V supply |
+| LM2596 buck module | 12 V -> 5 V for the ESP32 (5V pin) | Set to 5.0 V with a multimeter **before** connecting. Don't feed the 5V pin and USB at the same time |
 
 ## Still needed
 
 | Part | Why | Priority |
 |---|---|---|
 | INA226 (or INA219) module | Real voltage/current for `MeterValues` | must |
-| Buck converter 12 V -> 5 V | Power the ESP32 from the same supply | should (USB works meanwhile) |
 | 12 V 2 A supply | Only if the LED strip doesn't come with one | if needed |
 | WS2812 ring (8-16 LEDs) | Prettier status on camera than one RGB LED | nice |
 | Breadboard, jumpers, resistors (100 Ω, 220 Ω, 10 k), 1N4007 | Wiring; diode across the relay coil if the module lacks one | if not on hand |
