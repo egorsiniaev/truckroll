@@ -32,7 +32,7 @@ Low voltage only: 12 V DC max. The relay is rated for mains, but it only ever sw
 |---|---|---|
 | INA226 (or INA219) module | Real voltage/current for `MeterValues` | must |
 | 12 V 2 A supply | Only if the LED strip doesn't come with one | if needed |
-| WS2812 ring (8-16 LEDs) | Prettier status on camera than one RGB LED | nice |
+| WS2812B ring, 16 LEDs (69 mm) | Status on camera; replaces the RGB LED | buying. 5 V from the buck, 330 Ω on data, 1000 µF across 5 V/GND, brightness capped in code |
 | Breadboard, jumpers, resistors (100 Ω, 220 Ω, 10 k), 1N4007 | Wiring; diode across the relay coil if the module lacks one | if not on hand |
 
 ## Pin plan (ESP32 DevKitC V4)
@@ -45,7 +45,8 @@ Low voltage only: 12 V DC max. The relay is rated for mains, but it only ever sw
 | Cable plugged (latching) | 32 | `INPUT_PULLUP`, to GND |
 | Badge button | 33 | `INPUT_PULLUP`, to GND |
 | Fault button | 27 | `INPUT_PULLUP`, to GND |
-| RGB LED R / G / B | 16 / 17 / 4 | LEDC PWM |
+| WS2812B ring data | 16 | 330 Ω series resistor; if it flickers, add a 74AHCT125 level shifter |
+| RGB LED R / G / B (fallback) | 16 / 17 / 4 | only if no ring |
 | DS18B20 data | 13 | 4.7 k pull-up to 3.3 V |
 | RC522 SCK / MISO / MOSI / NSS / RST | 18 / 19 / 23 / 5 / 14 | VCC to 3V3, IRQ not connected |
 | Control pilot (stretch) | 34 | ADC1 only; ADC2 is dead with Wi-Fi on |
