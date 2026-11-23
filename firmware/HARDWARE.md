@@ -13,25 +13,27 @@ Low voltage only: 12 V DC max. The relay is rated for mains, but it only ever sw
 | 7БЕ0 (?) | Unknown | Check the full marking |
 | 3-channel relay | **Contactor**: clicks closed when charging starts, opens on stop or fault | Real chargers have one; the click is great on camera. Check the module triggers from 3.3 V (many are active-low, 5 V coil) |
 | Latching button | "Cable plugged in" -> status `Preparing` | Replaces the reed switch |
-| Momentary button 1 | "Badge in" -> `Authorize` + start/stop | Stand-in until an RFID reader arrives |
+| Momentary button 1 | Spare start/stop (if RFID misbehaves) | |
 | Momentary button 2 | Fault injection -> `StatusNotification: Faulted` | |
 | RGB LED (or 3 single LEDs) | Status: green Available, blue Charging, red Faulted, amber grid stress | 220 Ω per channel |
 | 3 V LEDs | Extra indicators (Wi-Fi/OCPP connected, contactor closed) | |
-| Raspberry Pi 3B | **Camera box**: webcam -> H.264 stream pushed out to the Hetzner relay | Replaces the ESP32-CAM; hardware encode, 720p is fine |
+| Raspberry Pi 3B + Logitech webcam | **Camera box**: webcam -> H.264 stream pushed out to the Hetzner relay | Replaces the ESP32-CAM; hardware encode, 720p is fine |
+| Small screen | kW, kWh, price, grid cap on the device | Check the model: SSD1306/SH1106 OLED (I2C) or a 1602 LCD with I2C backpack. Both work |
+| Keyestudio RFID-RC522 + cards | Real badge-in -> `Authorize` | Check the pins: SDA/SCK/MOSI/MISO/RST = SPI (pin plan below); only SDA/SCL = I2C variant, goes on the shared bus |
+| DS18B20 (Keyestudio module) | Hairdryer -> real derate | Module usually has the pull-up on board |
+| DHT11 (Keyestudio) | Enclosure temperature + humidity as extra telemetry | Optional; slow (1 reading / 2 s) |
+| Keyestudio sensor kit | Spares; possible extra fault sources later | |
+| 12 V LED strip or lamp | The "car" that dims | Finding it; needs a 12 V supply |
 
-## Still needed (~EUR 25-35)
+## Still needed
 
 | Part | Why | Priority |
 |---|---|---|
-| INA219 or INA226 module | Real voltage/current for `MeterValues` | must |
-| 12 V LED strip or 12 V lamp + 12 V 2 A supply | The "car" that dims | must |
-| 0.96" SSD1306 OLED (I2C) | kW, kWh, price, grid cap on the device | must for the demo |
-| DS18B20 temperature sensor + 4.7 k | Hairdryer -> real derate | should |
+| INA226 (or INA219) module | Real voltage/current for `MeterValues` | must |
 | Buck converter 12 V -> 5 V | Power the ESP32 from the same supply | should (USB works meanwhile) |
+| 12 V 2 A supply | Only if the LED strip doesn't come with one | if needed |
 | WS2812 ring (8-16 LEDs) | Prettier status on camera than one RGB LED | nice |
-| RC522 RFID + cards | Real badge-in instead of a button | nice |
-| USB webcam or Pi Camera v2 | Only if no webcam on hand | if needed |
-| Breadboard, jumpers, resistors (100 Ω, 220 Ω, 4.7 k, 10 k), 1N4007 | Wiring; diode across the relay coil if the module lacks one | if not on hand |
+| Breadboard, jumpers, resistors (100 Ω, 220 Ω, 10 k), 1N4007 | Wiring; diode across the relay coil if the module lacks one | if not on hand |
 
 ## Pin plan (ESP32 DevKitC V4)
 
