@@ -29,6 +29,7 @@ from csms.server import serve
 from csms.telemetry import Telemetry
 
 log = logging.getLogger("csms")
+AUTH_PROBE_S = 20
 
 
 def _env_int(name: str, default: int) -> int:
@@ -86,6 +87,13 @@ async def _run() -> None:
     admin_task = asyncio.create_task(admin.serve())
     log.info("admin api on http://%s:%d", host, admin_port)
 
+    async def probe_auth() -> None:
+        # Health-check the auth backend on a timer, so its latency is known even when no cards are being checked.
+        while True:
+            await chaos._auth_backend()
+            await asyncio.sleep(AUTH_PROBE_S)
+
+    probe = asyncio.create_task(probe_auth())
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -93,6 +101,7 @@ async def _run() -> None:
     await stop.wait()
 
     log.info("shutting down")
+    probe.cancel()
     admin.should_exit = True
     await admin_task
     server.close()
