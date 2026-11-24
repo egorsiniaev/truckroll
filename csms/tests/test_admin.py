@@ -134,3 +134,11 @@ async def test_fleet_reports_energy_this_session(stack):
             {"timestamp": "2026-11-24T10:01:00Z", "sampled_value": [{"value": "3500", "measurand": "Energy.Active.Import.Register", "unit": "Wh"}]}]))
         body = (await api.get("/fleet")).json()
     assert body["stations"][0]["connectors"][0]["session_wh"] == 2500
+
+
+async def test_trigger_asks_station_to_resend_status(stack):
+    url, api, _ = stack
+    async with station(url) as cp:
+        res = await api.post(f"/stations/{STATION}/trigger", json={"message": "StatusNotification"})
+        body = (await api.get("/fleet")).json()
+    assert res.json()["status"] == "Accepted"

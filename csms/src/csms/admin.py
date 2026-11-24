@@ -31,6 +31,11 @@ class ResetRequest(BaseModel):
     type: Literal["Soft", "Hard"] = "Soft"
 
 
+class TriggerRequest(BaseModel):
+    message: Literal["StatusNotification", "BootNotification", "Heartbeat", "MeterValues"] = "StatusNotification"
+    connector_id: int | None = None
+
+
 def station_json(s: Station, now: float) -> dict:
     return {
         "id": s.station_id,
@@ -45,7 +50,8 @@ def station_json(s: Station, now: float) -> dict:
             {"id": cid, "status": c.status, "error_code": c.error_code, "power_w": c.power_w,
              "energy_wh": c.energy_wh, "transaction_id": c.transaction_id,
              "session_wh": max(0.0, c.energy_wh - c.meter_start_wh)
-             if c.transaction_id and c.meter_start_wh is not None else None}
+             if c.transaction_id and c.meter_start_wh is not None else None,
+             "status_age_s": round(now - c.status_since) if c.status_since else None}
             for cid, c in sorted(s.connectors.items()) if cid > 0
         ],
     }
@@ -105,6 +111,13 @@ def create_admin_app(fleet: FleetStore, registry: Registry, clock: Callable[[], 
             fleet.set_limit(station_id, body.watts)
         log.info("station=%s limit=%s result=%s", station_id, body.watts, res.status)
         return {"station": station_id, "limit_w": body.watts, "status": res.status}
+
+    @app.post("/stations/{station_id}/trigger")
+    async def trigger(station_id: str, body: TriggerRequest):
+        payload = call.TriggerMessage(requested_message=body.message, connector_id=body.connector_id)
+        res = await send(connection_for(station_id), payload, "trigger")
+        log.info("station=%s trigger=%s result=%s", station_id, body.message, res.status)
+        return {"station": station_id, "status": res.status}
 
     @app.post("/stations/{station_id}/reset")
     async def reset(station_id: str, body: ResetRequest):

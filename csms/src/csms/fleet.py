@@ -23,6 +23,7 @@ class Connector:
     energy_wh: float = 0.0
     transaction_id: int | None = None
     meter_start_wh: float | None = None  # register reading at session start, for energy per session
+    status_since: float = 0.0  # when the connector entered its current status
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,10 @@ class FleetStore:
 
     def set_status(self, station_id: str, connector_id: int, status: str, error_code: str, now: float) -> None:
         with self._lock:
-            station = _with_connector(self._existing(station_id), connector_id, status=status, error_code=error_code)
+            existing = self._existing(station_id)
+            current = existing.connectors.get(connector_id)
+            since = current.status_since if current is not None and current.status == status else now
+            station = _with_connector(existing, connector_id, status=status, error_code=error_code, status_since=since)
             self._put(replace(station, last_seen=now))
 
     def start_transaction(self, station_id: str, connector_id: int, now: float, meter_start_wh: float | None = None) -> int:

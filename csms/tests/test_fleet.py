@@ -93,3 +93,12 @@ def test_adopt_transaction_from_before_a_restart_and_ids_do_not_collide():
     assert fleet.get("S-1").connectors[1].transaction_id == 461
     assert fleet.stop_transaction(461, now=2.0) == "S-1"
     assert fleet.start_transaction("S-1", connector_id=1, now=3.0) > 1_000_000_000
+
+
+def test_status_since_only_moves_when_the_status_changes():
+    fleet = FleetStore()
+    fleet.set_status("S-1", 1, "Preparing", "NoError", now=10.0)
+    fleet.set_status("S-1", 1, "Preparing", "NoError", now=50.0)
+    assert fleet.get("S-1").connectors[1].status_since == 10.0
+    fleet.set_status("S-1", 1, "Charging", "NoError", now=60.0)
+    assert fleet.get("S-1").connectors[1].status_since == 60.0
