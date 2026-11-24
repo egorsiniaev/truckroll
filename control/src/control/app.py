@@ -61,6 +61,7 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
         yield
         if task:
             task.cancel()
+        hub._save_state()  # on shutdown too, so a restart loses nothing since the last periodic save
 
     app = FastAPI(title="truckroll-control", lifespan=lifespan, docs_url="/api/docs", redoc_url=None)
     sites_by_code = {s["code"]: s for s in hub.sites}

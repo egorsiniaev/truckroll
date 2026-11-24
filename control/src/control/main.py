@@ -54,8 +54,10 @@ def build_app():
 
 
 def main() -> None:
+    # Page streams (SSE) never finish on their own; cap the wait so shutdown (and the state save) always runs
+    # before Docker's 10 s kill.
     uvicorn.run(build_app(), host=os.environ.get("HOST", "0.0.0.0"), port=int(os.environ.get("PORT", "8000")),
-                log_level="warning")
+                log_level="warning", timeout_graceful_shutdown=3)
 
 
 if __name__ == "__main__":

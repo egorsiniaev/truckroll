@@ -20,6 +20,7 @@ from control.demand import DemandEngine
 from control.economics import Economics, demand_factor
 from control.incidents import IncidentManager
 from control.limits import SOURCE_LABELS, LimitArbiter
+from control.persist import Clocks
 from control.prices import PriceClient, PriceError, summarize
 from control.scenarios import Ledger, Runner
 from control.state import build_snapshot, detect_events, group_events
@@ -86,25 +87,30 @@ class Hub:
         self.uptime = UptimeTracker([s["code"] for s in self.sites])
         self.batteries = BatteryFleet(self.sites, enabled=self.batteries_default)
         self.state_path = self.ledger_path.with_name("state.json") if self.ledger_path else None
-        self._load_state()
         self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
                                    on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices))
+        self._load_state()  # last: needs every component above
 
     # ---- survive restarts: uptime, today's money, battery charge -------------------
     def _save_state(self) -> None:
         if not self.state_path or not self.uptime.day:
             return
+        clocks = Clocks()
         data = {
             "day": self.uptime.day, "uptime_since": self.uptime.since,
             "uptime": {c: [v.up_s, v.total_s] for c, v in self.uptime.per_site.items()},
             "economics_day": self.economics.day,
             "economics": {c: led.__dict__ for c, led in self.economics.today.items()},
             "battery_soc_kwh": {c: b.soc_kwh for c, b in self.batteries.batteries.items()},
+            "saved_wall": clocks.wall,
+            "demand": self.demand.to_state(clocks),
+            "incidents": self.incidents.to_state(clocks),
         }
         try:
             tmp = self.state_path.with_suffix(".tmp")
             tmp.write_text(json.dumps(data))
             tmp.replace(self.state_path)
+            log.info("state saved")
         except OSError as exc:
             log.warning("state save failed: %s", exc)
 
@@ -128,6 +134,14 @@ class Hub:
         for code, soc in data.get("battery_soc_kwh", {}).items():
             if code in self.batteries.batteries:
                 self.batteries.batteries[code].soc_kwh = soc
+        clocks = Clocks()
+        try:
+            if "demand" in data:
+                self.demand.from_state(data["demand"], clocks)
+            if "incidents" in data:
+                self.incidents.from_state(data["incidents"], clocks)
+        except (KeyError, TypeError, ValueError) as exc:
+            log.warning("could not restore queue/incidents, starting them fresh: %s", exc)
         log.info("restored uptime, money and battery state from %s", self.state_path)
 
     @staticmethod

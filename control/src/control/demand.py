@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from control.clients import UpstreamError
+from control.persist import Clocks
 
 log = logging.getLogger(__name__)
 
@@ -106,6 +107,37 @@ class DemandEngine:
                 "diverted": st.diverted, "expected_wait_s": round(st.expected_wait_s),
             }
         return out
+
+    # ---- survive restarts ---------------------------------------------------------------
+    def to_state(self, clocks: Clocks) -> dict:
+        def car(c: Car) -> dict:
+            return {**c.__dict__, "arrived": clocks.to_wall(c.arrived)}
+
+        return {"next_id": next(self._ids), "sites": {code: {
+            "queue": [car(c) for c in st.queue],
+            "sessions": [{"car": car(se.car), "station": se.station, "connector": se.connector,
+                          "requested": clocks.to_wall(se.requested), "start_wh": se.start_wh, "tx": se.tx}
+                         for se in st.sessions.values()],
+            "counters": {k: getattr(st, k) for k in ("completed", "interrupted", "abandoned", "diverted",
+                                                      "wait_s_total", "served")},
+        } for code, st in self.state.items()}}
+
+    def from_state(self, data: dict, clocks: Clocks) -> None:
+        def car(d: dict) -> Car:
+            return Car(**{**d, "arrived": clocks.to_mono(d["arrived"])})
+
+        for code, saved in data.get("sites", {}).items():
+            if code not in self.state:
+                continue
+            st = SiteDemand(queue=deque(car(c) for c in saved.get("queue", [])))
+            for se in saved.get("sessions", []):
+                st.sessions[(se["station"], se["connector"])] = Session(
+                    car(se["car"]), se["station"], se["connector"], clocks.to_mono(se["requested"]), se["start_wh"], se["tx"])
+            for k, v in saved.get("counters", {}).items():
+                setattr(st, k, v)
+            self.state[code] = st
+        self._ids = itertools.count(data.get("next_id", 1))
+        self._warm = True  # the restored queue replaces the warm start
 
     def session_info(self, stations: Mapping[str, Mapping]) -> dict[str, dict]:
         """Per "station#connector": what the car needs, what it has, and when it should be done at current power."""

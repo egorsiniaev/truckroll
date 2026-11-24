@@ -201,9 +201,14 @@ async def test_uptime_money_and_battery_survive_a_restart(tmp_path):
                         "connectors": [{"status": "Available"}]}], 600, datetime.now(UTC))
     hub.economics.accrue([{"code": "A2-HUB", "power_w": 10_000}], None, 3600, datetime.now(UTC))
     hub.batteries.batteries["A2-HUB"].soc_kwh = 123.0
+    from control.demand import Car
+    hub.demand.state["A2-HUB"].queue.append(Car(1, "A2-HUB", 9000, hub.demand.clock(), 600, "T"))
+    inc = hub.incidents._new("fault:A2-HUB-00001", "fault", "critical", "boom", "A2-HUB", ["A2-HUB-00001"])
     hub._save_state()
 
     again = make()
     assert again.uptime.per_site["A2-HUB"].total_s == 600 and again.uptime.summary()["fleet"] == 0.0
     assert again.economics.summary()["fleet"]["energy_kwh"] == 10
     assert again.batteries.batteries["A2-HUB"].soc_kwh == 123.0
+    assert len(again.demand.state["A2-HUB"].queue) == 1
+    assert again.incidents.open["fault:A2-HUB-00001"].id == inc.id

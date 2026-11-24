@@ -42,7 +42,9 @@ API docs: http://localhost:8080/api/docs.
   Covers load above the grid cap first, stores spare solar, supplies the site in the day's top 20 % of prices, and
   fills from the grid in the cheapest quarter, only within the cap. 10-95 % SoC, 90 % round trip. Its spare power
   counts toward the site controller's allowance; load on the page is grid draw (chargers - solar + battery) vs cap.
-- **Restarts**: uptime, today's money and battery charge are saved to `/data/state.json` every minute and restored.
+- **Restarts**: uptime, today's money, battery charge, the queue (waiting cars, tracked sessions, counters) and
+  incidents (open and recent, with pending timers) are saved to `/data/state.json` every minute and on shutdown,
+  and restored on start. Timers are stored as wall-clock time, so downtime counts as time passed.
 
 ## Automatic parts
 
@@ -77,5 +79,4 @@ the ground truth for the triage-agent eval, so the agent must never be given acc
 
 ## Known gaps
 
-- Restarting this service still drops a running scenario mid-way (no ledger record of the cut run) and resets the
-  queue and the open incidents; uptime, money and battery charge survive.
+- Restarting this service still drops a running scenario mid-way (no ledger record of the cut run).

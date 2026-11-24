@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from control.clients import UpstreamError
+from control.persist import Clocks
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ STUCK_STATES = {"Preparing", "Finishing"}  # transitional: a connector should pa
 STUCK_AFTER_S = 180
 STUCK_RESET_AFTER_S = 60  # after asking the charger to re-report its status
 KEEP_CLOSED = 25
+TIME_MEMOS = ("reset_at", "verify_from", "asked_at")  # memo entries that are monotonic timestamps
 
 
 def _iso() -> str:
@@ -79,6 +81,33 @@ class IncidentManager:
         self._offline_since: dict[str, float] = {}
         self._drops: dict[str, deque[float]] = {}
         self._prev_state: dict[str, str] = {}
+
+    # ---- survive restarts ---------------------------------------------------------------
+    def to_state(self, clocks: Clocks) -> dict:
+        def inc(i: Incident) -> dict:
+            memo = {k: (clocks.to_wall(v) if k in TIME_MEMOS else v) for k, v in i.memo.items()}
+            return {**i.__dict__, "opened_at": clocks.to_wall(i.opened_at), "memo": memo}
+
+        return {
+            "seq": next(self._seq),
+            "open": {k: inc(i) for k, i in self.open.items()},
+            "closed": [inc(i) for i in self.closed],
+            "offline_since": {k: clocks.to_wall(v) for k, v in self._offline_since.items()},
+            "drops": {k: [clocks.to_wall(t) for t in v] for k, v in self._drops.items()},
+            "prev_state": self._prev_state,
+        }
+
+    def from_state(self, data: dict, clocks: Clocks) -> None:
+        def inc(d: dict) -> Incident:
+            memo = {k: (clocks.to_mono(v) if k in TIME_MEMOS else v) for k, v in d.get("memo", {}).items()}
+            return Incident(**{**d, "opened_at": clocks.to_mono(d["opened_at"]), "memo": memo})
+
+        self.open = {k: inc(d) for k, d in data.get("open", {}).items()}
+        self.closed = deque((inc(d) for d in data.get("closed", [])), maxlen=KEEP_CLOSED)
+        self._offline_since = {k: clocks.to_mono(v) for k, v in data.get("offline_since", {}).items()}
+        self._drops = {k: deque(clocks.to_mono(t) for t in v) for k, v in data.get("drops", {}).items()}
+        self._prev_state = dict(data.get("prev_state", {}))
+        self._seq = itertools.count(data.get("seq", 1))
 
     def snapshot(self) -> list[dict]:
         now = self.clock()
