@@ -378,3 +378,5 @@ table.chaos select { padding: 3px 6px; font-size: 11px; }
 .kpi-value { font-size: 20px; font-weight: 700; margin: 4px 0 10px; }
 .legend span[title] { cursor: help; }
 .stat b i.val { font-style: normal; }
+.age { font-size: 11px; color: var(--muted); }
+.age.warn { color: #b45309; font-weight: 600; } .age.bad { color: #b91c1c; font-weight: 700; }

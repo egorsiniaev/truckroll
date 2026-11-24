@@ -9,6 +9,35 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&a
 const LATENCIES = [0, 500, 2000, 5000];
 const STATUS_CLASS = { Available: "ok", Preparing: "warn", Finishing: "warn", Charging: "info", SuspendedEV: "info",
   SuspendedEVSE: "info", Faulted: "bad", Unavailable: "bad" };
+const TRANSITIONAL = new Set(["Preparing", "Finishing"]);
+const STUCK_WARN_S = 60;
+const STUCK_ALERT_S = 180; // matches the incident rule
+
+function since(seconds) {
+  if (seconds == null) return "";
+  return seconds >= 3600 ? `${Math.floor(seconds / 3600)}${NB}h ${Math.round((seconds % 3600) / 60)}${NB}min`
+    : seconds >= 60 ? `${Math.round(seconds / 60)}${NB}min` : `${seconds}${NB}s`;
+}
+
+function doneAt(eta) {
+  if (eta == null) return "–";
+  const t = new Date(Date.now() + eta * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${t} <span class="muted">(${since(eta)})</span>`;
+}
+
+function connectorRow(c) {
+  const age = c.status_age_s;
+  const stuck = TRANSITIONAL.has(c.status) && age >= STUCK_ALERT_S ? "bad" : TRANSITIONAL.has(c.status) && age >= STUCK_WARN_S ? "warn" : "";
+  const sess = c.session;
+  const session = sess ? `${sess.delivered_kwh} / ${sess.need_kwh}${NB}kWh${sess.adopted ? ' <span class="muted" title="taken over after a restart; target is an estimate">*</span>' : ""}`
+    : c.session_wh != null ? kwh(c.session_wh) : "–";
+  const done = sess?.starting ? '<span class="muted">starting…</span>' : doneAt(sess?.eta_s);
+  const err = c.error_code !== "NoError" ? `<br><span class="bad">${esc(c.error_code)}</span>` : "";
+  return `<tr><td>${c.id}</td><td><span class="st ${STATUS_CLASS[c.status] ?? ""}">${esc(c.status)}</span>
+    <br><span class="age ${stuck}">for ${since(age) || "–"}${stuck === "bad" ? " · stuck" : ""}</span>${err}</td>
+    <td>${kw(c.power_w)}</td><td>${session}</td><td>${done}</td></tr>`;
+}
+
 const STATUS_HELP = "Statuses are OCPP 1.6: Available = free; Preparing = car plugged in, session starting, no energy yet; "
   + "Charging = energy flowing; Suspended = paused by the car or the charger; Finishing = session ended, car still "
   + "plugged in; Faulted = error, can't charge.";
@@ -115,8 +144,9 @@ export function renderStation(root, st, site, meta, snapshot, ctx) {
     </div>
     ${sources.length ? `<p class="meta">Limited by: ${sources.map(([k, v]) => `${esc(k)} ${kw(v)}`).join(", ")} (lowest wins)</p>` : ""}
     <h4>Connectors</h4>
-    <table><tr><th>#</th><th>Status</th><th title="Charging power right now, from the charger's meter">Power now</th><th title="Energy delivered to the car in the current session">This session</th><th>Error</th></tr>
-      ${st.connectors.map((c) => `<tr><td>${c.id}</td><td><span class="st ${STATUS_CLASS[c.status] ?? ""}">${esc(c.status)}</span></td><td>${kw(c.power_w)}</td><td>${c.session_wh != null ? kwh(c.session_wh) : "–"}</td><td>${c.error_code === "NoError" ? "–" : `<span class="bad">${esc(c.error_code)}</span>`}</td></tr>`).join("")}
+    <table><tr><th>#</th><th>Status</th><th title="Charging power right now, from the charger's meter">Power</th>
+      <th title="Energy delivered in this session / what the car needs">Session</th><th title="When the car should be done at the current power">Done</th></tr>
+      ${st.connectors.map((c) => connectorRow(c)).join("")}
     </table>
     <p class="meta">${STATUS_HELP}</p>
     <h4>Control</h4>
