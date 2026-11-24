@@ -97,6 +97,7 @@ class WorldEngine:
         self.clients = clients
         self.arbiter = arbiter
         self.enabled = enabled
+        self.override_temp: dict[str, float] = {}  # scenarios can force a temperature per site
         self.rules: list[Rule] = []
         self.targets: dict[str, float] = {}
         self._stormy: set[str] = set()
@@ -124,6 +125,8 @@ class WorldEngine:
 
     async def tick(self, snapshot: Mapping, weather: Mapping[str, Mapping], prices: Mapping | None = None) -> list[str]:
         """Returns human-readable changes made, for the event feed."""
+        weather = {code: ({**w, "temp_c": self.override_temp[code]} if code in self.override_temp else w)
+                   for code, w in {**{s["code"]: {} for s in self.sites}, **weather}.items()}
         self.rules = [r for s in self.sites for r in weather_rules(s, weather.get(s["code"]))]
         self.rules += [r for s in self.sites if (r := price_rule(s, prices)) is not None]
         if not self.enabled:

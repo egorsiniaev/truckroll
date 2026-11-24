@@ -45,6 +45,10 @@ class FaultRequest(BaseModel):
     error_code: Literal[ERROR_CODES] = "OtherError"  # type: ignore[valid-type]
 
 
+class DecisionRequest(BaseModel):
+    choice: Literal["approve", "reject"]
+
+
 class ToggleRequest(BaseModel):
     on: bool | None = None
     enabled: bool | None = None
@@ -98,6 +102,25 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
     @app.get("/metrics", response_class=PlainTextResponse)
     async def metrics():
         return metrics_text(hub.snapshot)
+
+    @app.post("/api/decisions/{decision_id}")
+    async def decide(decision_id: str, body: DecisionRequest):
+        try:
+            d = hub.book.answer(decision_id, body.choice)
+        except KeyError:
+            raise HTTPException(404, f"no pending decision {decision_id}") from None
+        hub.add_event("info", f"operator {'approved' if body.choice == 'approve' else 'rejected'}: {d.question}",
+                      d.site, (d.stations or [None])[0], kind="operator")
+        await hub.poll_once()  # act on it now, not on the next tick
+        return {"ok": True, "result": d.to_json(hub.book.clock())}
+
+    @app.post("/api/hitl")
+    async def hitl(body: ToggleRequest):
+        hub.book.enabled = body.value
+        hub.add_event("info", "human approval on: risky actions wait for an operator" if body.value
+                      else "human approval off: every response runs automatically", kind="operator")
+        await hub.poll_once()
+        return {"ok": True, "result": {"enabled": hub.book.enabled}}
 
     @app.post("/api/batteries")
     async def batteries(body: ToggleRequest):

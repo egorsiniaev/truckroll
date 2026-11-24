@@ -48,7 +48,8 @@ def build_app():
               world_default=flag("WORLD_DEFAULT", "true"), autopilot_default=flag("AUTOPILOT_DEFAULT", "true"),
               grafana_url=os.environ.get("GRAFANA_URL", "http://localhost:3000/d/truckroll-fleet"),
               dynamic_pricing_default=flag("DYNAMIC_PRICING_DEFAULT", "true"),
-              batteries_default=flag("BATTERIES_DEFAULT", "true"))
+              batteries_default=flag("BATTERIES_DEFAULT", "true"),
+              hitl_default=flag("HITL_DEFAULT", "true"))
     web = os.environ.get("WEB_DIR", "/web")
     return create_app(hub, Path(web))
 

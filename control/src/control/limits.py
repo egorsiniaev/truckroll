@@ -67,6 +67,11 @@ class LimitArbiter:
             self._pending.add(station)
             log.info("limit for %s deferred: %s", station, exc)
 
+    async def reapply(self, station: str) -> None:
+        """Send the current limit again, e.g. when a charger seems to have ignored it."""
+        self._pending.add(station)
+        await self._apply(station)
+
     async def retry_pending(self, online: set[str]) -> None:
         for station in sorted(self._pending & online):
             await self._apply(station)

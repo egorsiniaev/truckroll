@@ -121,6 +121,17 @@ panel("timeseries", "Battery power (+ charging, - supplying)", [("truckroll_site
 panel("timeseries", "Drivers who saw the wait and went elsewhere (today)", [("truckroll_site_diverted_today", "{{site}}")],
       16, 36, 8, 8, None, steps(GREEN, (5, ORANGE), (20, RED)), color_by_threshold=True)
 
+# Row 7: service levels and the human in the loop
+panel("bargauge", "Service levels (ratios)", [('truckroll_slo{id=~"uptime|uptime_excl|starts|flex"}', "{{id}}")],
+      0, 44, 12, 8, "percentunit", steps(RED, (0.95, ORANGE), (0.99, GREEN)),
+      options={"orientation": "horizontal", "displayMode": "gradient", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      minv=0.9, maxv=1, desc="Uptime as experienced and excluding injected faults, session start success, flex "
+                             "delivery. Targets: 99 %, 99 %, 98 %, 95 %.")
+panel("stat", "Grid cap violations today", [('truckroll_slo{id="cap"}', None)], 12, 44, 6, 8, None, ZERO_GOOD, options=STAT,
+      desc="Episodes with a site over its grid cap for more than 60 s. Target 0.")
+panel("stat", "Decisions waiting for an operator", [("truckroll_decisions_pending", None)], 18, 44, 6, 8, None,
+      steps(GREEN, (1, ORANGE), (3, RED)), options=STAT)
+
 dashboard = {"uid": "truckroll-fleet", "title": "Truckroll fleet", "tags": ["truckroll"], "timezone": "browser",
              "schemaVersion": 41, "refresh": "15s", "time": {"from": "now-1h", "to": "now"}, "panels": panels}
 

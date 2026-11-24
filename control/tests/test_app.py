@@ -29,6 +29,13 @@ class FakeCsms:
         self.calls.append(("reset", sid))
         return {"status": "Accepted"}
 
+    async def stats(self):
+        return {"reply_latency_s": 0.0, "auth_latency_s": 0.0, "free_vend": False}
+
+    async def chaos(self, **kw):
+        self.calls.append(("chaos", kw))
+        return {}
+
 
 class FakeToxi:
     def __init__(self, fail=False):
@@ -212,3 +219,18 @@ async def test_uptime_money_and_battery_survive_a_restart(tmp_path):
     assert again.batteries.batteries["A2-HUB"].soc_kwh == 123.0
     assert len(again.demand.state["A2-HUB"].queue) == 1
     assert again.incidents.open["fault:A2-HUB-00001"].id == inc.id
+
+
+async def test_slo_summary_and_decision_api(ctx):
+    client, clients, hub = ctx
+    ids = {s["id"] for s in hub.snapshot["slo"]}
+    assert ids == {"uptime", "uptime_excl", "starts", "cap", "flex"}
+    assert (await client.post("/api/decisions/DEC-9999", json={"choice": "approve"})).status_code == 404
+    inc = hub.incidents._new("x", "fault", "critical", "t", "A2-HUB", ["A2-HUB-00001"])
+    await hub.incidents._ask(inc, "reset", {"station": "A2-HUB-00001"}, "Reset it?", "Because.")
+    [d] = hub.book.snapshot()["pending"]
+    res = await client.post(f"/api/decisions/{d['id']}", json={"choice": "approve"})
+    assert res.status_code == 200
+    assert ("reset", "A2-HUB-00001") in clients.csms.calls
+    assert inc.timeline[-1]["actor"] == "operator" and "approved" in inc.timeline[-1]["text"]
+    assert (await client.post("/api/hitl", json={"enabled": False})).json()["result"]["enabled"] is False

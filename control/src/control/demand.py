@@ -21,6 +21,7 @@ from control.persist import Clocks
 log = logging.getLogger(__name__)
 
 START_TIMEOUT_S = 40
+RECENT_S = 180
 # A transaction can sit in any of these; a charger reporting the wrong one must not strand the session.
 ADOPTABLE = {"Charging", "SuspendedEV", "SuspendedEVSE", "Preparing", "Finishing"}
 MIN_POWER_FOR_ETA_W = 200
@@ -74,6 +75,9 @@ class SiteDemand:
     interrupted: int = 0
     abandoned: int = 0
     diverted: int = 0  # saw the wait in the app and went elsewhere
+    starts_ok: int = 0
+    starts_failed: int = 0
+    recent_failures: deque = field(default_factory=deque)  # times of failed starts, for incident detection
     expected_wait_s: float = 0.0
     wait_s_total: float = 0.0
     served: int = 0
@@ -105,6 +109,8 @@ class DemandEngine:
                 "arrivals_per_hour": round(self.rates.get(code, 0.0), 1),
                 "completed": st.completed, "interrupted": st.interrupted, "abandoned": st.abandoned,
                 "diverted": st.diverted, "expected_wait_s": round(st.expected_wait_s),
+                "starts_ok": st.starts_ok, "starts_failed": st.starts_failed,
+                "recent_start_failures": sum(1 for t in st.recent_failures if self.clock() - t <= RECENT_S),
             }
         return out
 
@@ -119,7 +125,7 @@ class DemandEngine:
                           "requested": clocks.to_wall(se.requested), "start_wh": se.start_wh, "tx": se.tx}
                          for se in st.sessions.values()],
             "counters": {k: getattr(st, k) for k in ("completed", "interrupted", "abandoned", "diverted",
-                                                      "wait_s_total", "served")},
+                                                      "wait_s_total", "served", "starts_ok", "starts_failed")},
         } for code, st in self.state.items()}}
 
     def from_state(self, data: dict, clocks: Clocks) -> None:
@@ -207,8 +213,13 @@ class DemandEngine:
             if sess.tx is None:
                 if conn and conn.get("transaction_id"):
                     sess.tx, sess.start_wh = conn["transaction_id"], conn.get("energy_wh") or 0.0
+                    st.starts_ok += 1
                 elif now - sess.requested > START_TIMEOUT_S:
                     del st.sessions[key]
+                    st.starts_failed += 1
+                    st.recent_failures.append(now)
+                    while st.recent_failures and now - st.recent_failures[0] > RECENT_S:
+                        st.recent_failures.popleft()
                     st.queue.appendleft(sess.car)  # try another connector
                 continue
             if not station or not conn or conn.get("transaction_id") != sess.tx or not station.get("connected"):

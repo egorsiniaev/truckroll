@@ -56,5 +56,11 @@ def metrics_text(snap: Mapping) -> str:
     incidents = [i for i in snap.get("incidents", []) if i["status"] != "recovered"]
     gauge("truckroll_incidents_open", "Open or monitoring incidents by severity",
           [({"severity": sev}, sum(1 for i in incidents if i["severity"] == sev)) for sev in ("critical", "warning", "info")])
+    for slo in snap.get("slo", []):
+        if slo["value"] is not None:
+            lines.append(f'truckroll_slo{{id="{slo["id"]}"}} {float(slo["value"])}')
+            lines.append(f'truckroll_slo_target{{id="{slo["id"]}"}} {float(slo["target"])}')
+    gauge("truckroll_decisions_pending", "Questions waiting for an operator",
+          [({}, len((snap.get("decisions") or {}).get("pending", [])))])
     gauge("truckroll_scenario_running", "1 while a scenario runs", [({}, int(bool((snap.get("scenario") or {}).get("running"))))])
     return "\n".join(lines) + "\n"

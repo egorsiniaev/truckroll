@@ -1,5 +1,6 @@
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,8 +17,8 @@ class Recorder:
         self.calls = []
 
     def __getattr__(self, name):
-        async def record(*args):
-            self.calls.append((name, *args))
+        async def record(*args, **kwargs):
+            self.calls.append((name, *args, *sorted(kwargs.items())))
         return record
 
 
@@ -33,7 +34,7 @@ def runner(tmp_path):
     events = []
     clients = Clients()
     r = Runner(clients, SITES, Ledger(tmp_path / "ledger.jsonl"), lambda lvl, txt: events.append((lvl, txt)),
-               time_scale=0.001, seed=7, limits=LimitArbiter(clients.csms))
+               time_scale=0.001, seed=7, limits=LimitArbiter(clients.csms), world=SimpleNamespace(override_temp={}))
     return r, clients, events, tmp_path / "ledger.jsonl"
 
 
@@ -45,7 +46,7 @@ async def test_every_scenario_runs_cleans_up_and_writes_ledger(runner, scenario)
     record = json.loads(ledger.read_text().splitlines()[-1])
     assert record["scenario"] == scenario and record["outcome"] == "completed"
     assert record["root_cause"]
-    assert clients.calls, "scenario did nothing"
+    assert clients.calls or scenario == "cold-snap", "scenario did nothing"  # cold snap only changes the weather
     assert events[-1] == ("ok", f"scenario completed: {next(s.title for s in SCENARIOS if s.id == scenario)}")
     assert r.status() == {"running": None}
 

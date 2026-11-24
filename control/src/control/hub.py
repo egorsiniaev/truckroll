@@ -15,6 +15,8 @@ from control.autopilot import Autopilot
 from control.battery import BatteryFleet
 from control.clients import CsmsClient, SimulatorClient, ToxiproxyClient, UpstreamError, WeatherClient
 from control.controller import SiteController
+from control.decisions import DecisionBook
+from control.slo import SloTracker
 from control.daylight import daylight
 from control.demand import DemandEngine
 from control.economics import Economics, demand_factor
@@ -63,6 +65,7 @@ class Hub:
     grafana_url: str | None = None
     dynamic_pricing_default: bool = True
     batteries_default: bool = True
+    hitl_default: bool = True
     id_tags: list = field(default_factory=lambda: [f"TR-{n:04d}" for n in range(1, 101)])
     snapshot: dict = field(default_factory=dict)
     events: deque = field(default_factory=lambda: deque(maxlen=MAX_EVENTS))
@@ -79,9 +82,11 @@ class Hub:
         self.limits = LimitArbiter(self.clients.csms)
         self.world = WorldEngine(self.sites, self.clients, self.limits, enabled=self.world_default)
         self.runner = Runner(self.clients, self.sites, Ledger(self.ledger_path), self._scenario_event,
-                             limits=self.limits)
+                             limits=self.limits, world=self.world)
         self.controller = SiteController(self.sites, self.limits)
-        self.incidents = IncidentManager(self.sites, self.clients)
+        self.book = DecisionBook(enabled=self.hitl_default)
+        self.incidents = IncidentManager(self.sites, self.clients, book=self.book, limits=self.limits)
+        self.slo = SloTracker([s["code"] for s in self.sites])
         self.autopilot = Autopilot(self.runner, enabled=self.autopilot_default)
         self.economics = Economics(self.sites, dynamic=self.dynamic_pricing_default)
         self.uptime = UptimeTracker([s["code"] for s in self.sites])
@@ -98,7 +103,9 @@ class Hub:
         clocks = Clocks()
         data = {
             "day": self.uptime.day, "uptime_since": self.uptime.since,
-            "uptime": {c: [v.up_s, v.total_s] for c, v in self.uptime.per_site.items()},
+            "uptime": {c: [v.up_s, v.total_s, v.up_x, v.total_x] for c, v in self.uptime.per_site.items()},
+            "slo": self.slo.to_state(),
+            "decisions": self.book.to_state(clocks),
             "economics_day": self.economics.day,
             "economics": {c: led.__dict__ for c, led in self.economics.today.items()},
             "battery_soc_kwh": {c: b.soc_kwh for c, b in self.batteries.batteries.items()},
@@ -127,7 +134,10 @@ class Hub:
         today = datetime.now(UTC).astimezone(self.uptime_tz()).strftime("%Y-%m-%d")
         if data.get("day") == today:
             self.uptime.day, self.uptime.since = today, data.get("uptime_since", "")
-            self.uptime.per_site = {c: Counter(*v) for c, v in data.get("uptime", {}).items()}
+            # Older saves have no "excluding injected" counters: start them from the experienced ones.
+            self.uptime.per_site = {c: Counter(*(v if len(v) == 4 else [*v, *v])) for c, v in data.get("uptime", {}).items()}
+        if data.get("slo", {}).get("day") == today:
+            self.slo.from_state(data["slo"])
         if data.get("economics_day") == today:
             self.economics.day = today
             self.economics.today = {c: Ledger(**v) for c, v in data.get("economics", {}).items()}
@@ -140,6 +150,8 @@ class Hub:
                 self.demand.from_state(data["demand"], clocks)
             if "incidents" in data:
                 self.incidents.from_state(data["incidents"], clocks)
+            if "decisions" in data:
+                self.book.from_state(data["decisions"], clocks)
         except (KeyError, TypeError, ValueError) as exc:
             log.warning("could not restore queue/incidents, starting them fresh: %s", exc)
         log.info("restored uptime, money and battery state from %s", self.state_path)
@@ -211,6 +223,12 @@ class Hub:
             proxies = await self.clients.toxiproxy.proxies()
         except UpstreamError as exc:
             errors["toxiproxy"] = str(exc)
+        backend: dict = {}
+        if stations:
+            try:
+                backend = await self.clients.csms.stats()
+            except UpstreamError as exc:
+                errors["csms-stats"] = str(exc)
         await self.refresh_weather()
         await self.refresh_prices()
         if self.weather_error:
@@ -219,6 +237,7 @@ class Hub:
             errors["prices"] = self.prices_error
 
         snap = build_snapshot(self.sites, stations, proxies, self.weather, errors, _now_iso())
+        snap["backend"] = backend  # before the incident engine runs: its backend rules read it
         now_mono = time.monotonic()
         dt = now_mono - self._last_poll if self._last_poll else 0.0
         self._last_poll = now_mono
@@ -237,7 +256,9 @@ class Hub:
             site["battery_support_w"] = self.batteries.support_w(site["code"])
         if stations and dt:
             self.economics.accrue(snap["sites"], self.prices, min(dt, 30.0), datetime.now(UTC))
-            self.uptime.accrue(snap["stations"], min(dt, 30.0), datetime.now(UTC))
+            run = self.runner.status().get("running") or {}
+            self.uptime.accrue(snap["stations"], min(dt, 30.0), datetime.now(UTC),
+                               excluded_sites=set(run.get("sites", [])), excluded_stations=set(run.get("stations", [])))
         uptime = self.uptime.summary()
         snap["kpis"]["uptime_today"] = uptime["fleet"]
         snap["kpis"]["uptime_since"] = uptime["since"]
@@ -270,6 +291,13 @@ class Hub:
             await self._automatic(snap)
 
         snap["kpis"]["queue"] = sum(d["queue"] for d in demand.values())
+        if stations and dt:
+            flex = {}
+            for site in self.sites:
+                mine = [w for sid, w in self.limits.stations_for("grid-operator").items() if sid.startswith(f"{site['code']}-")]
+                if mine:
+                    flex[site["code"]] = sum(mine)
+            self.slo.accrue(snap["sites"], flex, min(dt, 30.0), time.monotonic(), self.uptime.day)
         sun = next(iter(self.weather.values()), {}) if self.weather else {}
         self.snapshot = {
             **snap,
@@ -283,6 +311,8 @@ class Hub:
             "grafana_url": self.grafana_url,
             "economics": money,
             "batteries_enabled": self.batteries.enabled,
+            "slo": self.slo.summary(uptime, demand),
+            "decisions": self.book.snapshot(),
         }
 
     async def _automatic(self, snap: dict) -> None:

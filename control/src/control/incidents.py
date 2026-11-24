@@ -1,7 +1,8 @@
 """Incidents: what happened, how the system responded, and how it recovered.
 
-Every response records its actor. Today all responses are automatic rules ("auto-rule"); the human-in-the-loop
-step will add operator decisions with a deadline, falling back to the same rules when nobody answers.
+Cheap, reversible responses run on their own ("auto-rule"). Risky ones (truck rolls, resets that interrupt a
+driver, rollbacks, taking chargers out of service, free vend) become questions for an operator with a deadline;
+no answer means the default applies. Every timeline entry records who acted.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from control.clients import UpstreamError
+from control.decisions import DecisionBook
 from control.persist import Clocks
 
 log = logging.getLogger(__name__)
@@ -71,10 +73,15 @@ class Incident:
 
 
 class IncidentManager:
-    def __init__(self, sites: list[dict], clients, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, sites: list[dict], clients, clock: Callable[[], float] = time.monotonic,
+                 book: DecisionBook | None = None, limits=None) -> None:
         self.sites = {s["code"]: s for s in sites}
         self.clients = clients
         self.clock = clock
+        self.book = book or DecisionBook(enabled=False, clock=clock)
+        self.limits = limits
+        self.meters: dict = {}  # per connector: energy vs power cross-check (incident_rules.meter_drift)
+        self.over_limit_since: dict[str, float] = {}  # station -> when it went above its limit
         self.open: dict[str, Incident] = {}  # key -> incident
         self.closed: deque[Incident] = deque(maxlen=KEEP_CLOSED)
         self._seq = itertools.count(1)
@@ -121,20 +128,94 @@ class IncidentManager:
 
     def _close(self, key: str, text: str, actor: str = "system", short: str = "recovered") -> None:
         inc = self.open.pop(key)
+        self.book.cancel_for(inc.id)
         inc.status, inc.recovered = "recovered", _iso()
         inc.ttr_s = round(self.clock() - inc.opened_at)
         inc.add("recovered", f"{text} Time to recover: {_dur(inc.ttr_s)}.", actor, short)
         self.closed.appendleft(inc)
 
+    # ---- decisions: ask, then act on the answer ----------------------------------------
+    async def _ask(self, inc: Incident, action: str, params: dict, question: str, why: str,
+                   default: str = "approve", timeout_s: float | None = None) -> None:
+        inc.memo.setdefault("asked", []).append(action)
+        if not self.book.enabled:
+            await self._run(inc, action, params, "auto-rule")
+            return
+        d = self.book.propose(inc.id, action, params, question, why, default, inc.site, inc.stations, timeout_s)
+        wait = int(d.deadline_at - d.created_at)
+        inc.add("decision", f"Asks an operator: {question} {why} No answer in {wait} s means "
+                            f"{'yes' if default == 'approve' else 'no'}.", "system", short="asks you")
+
+    def _asked(self, inc: Incident, action: str) -> bool:
+        return action in inc.memo.get("asked", [])
+
+    async def _resolve_decisions(self) -> None:
+        self.book.expire()
+        by_id = {i.id: i for i in self.open.values()}
+        for d in self.book.resolved():
+            inc = by_id.get(d.incident_id)
+            if inc is not None:
+                timed_out = d.decided_by == "timeout"
+                actor = "auto-rule" if timed_out else "operator"
+                if d.status == "approved":
+                    await self._run(inc, d.action, d.params, actor, " (no answer in time)" if timed_out else " (approved)")
+                else:
+                    inc.memo.setdefault("declined", []).append(d.action)
+                    inc.add("update", f"{'No answer, default is no' if timed_out else 'Operator said no'}: "
+                                      f"{d.question}", actor, short="declined")
+            self.book.done(d)
+
+    async def _run(self, inc: Incident, action: str, params: dict, actor: str, note: str = "") -> None:
+        sid = params.get("station")
+        steps = {
+            "reset": (lambda: self.clients.csms.reset(sid, "Soft"), "Soft reset sent (OCPP Reset).", "soft reset"),
+            "truck_roll": (None, "Truck roll dispatched (simulated), technician ETA 2 h.", "truck roll"),
+            "rollback": (None, "Firmware rollback started on these chargers (simulated).", "rollback"),
+            "free_vend": (lambda: self.clients.csms.chaos(free_vend=True),
+                          "Free vend on: chargers accept every card without asking the auth backend.", "free vend"),
+            "inoperative": (lambda: self.clients.csms.availability(sid, "Inoperative"),
+                            "Charger taken out of service (OCPP ChangeAvailability) to protect the grid cap.",
+                            "out of service"),
+            "restart_worker": (lambda: self.clients.csms.chaos(response_delay_s=0),
+                               "Restarted the stuck backend worker.", "worker restart"),
+            "calibration": (None, "Meter calibration visit booked (simulated). Sessions stay on billing hold.",
+                            "calibration"),
+        }
+        call, text, short = steps[action]
+        try:
+            res = await call() if call is not None else None
+            answer = (res or {}).get("result", res or {}).get("status") if isinstance(res, dict) else None
+            if answer == "Scheduled":
+                # OCPP: a charger with a session running applies this when the session ends.
+                text = text[:-1] + ", scheduled by the charger for when the current session ends."
+                short = f"{short} (scheduled)"
+            elif answer not in (None, "Accepted"):
+                text = text[:-1] + f"; the charger answered {answer}."
+            inc.add("response", text[:-1] + note + ".", actor, short=short)
+            inc.memo[action] = True
+            if action == "truck_roll":
+                inc.memo["truck"] = True
+            if action == "reset":
+                inc.memo["reset_at"] = self.clock()
+        except UpstreamError as exc:
+            inc.add("response", f"{short} failed: {exc}.", actor, short=f"{short} failed")
+
     async def observe(self, snapshot: Mapping) -> None:
+        from control import incident_rules
+
         now = self.clock()
+        await self._resolve_decisions()
         stations = snapshot.get("stations", [])
         self._track_offline(stations, now)
         outage_sites = self._site_outages(snapshot)
-        self._crash_loops(stations, now)
-        self._station_offline(stations, outage_sites, now)
+        await self._crash_loops(stations, now)
+        await self._station_offline(stations, outage_sites, now)
         await self._faults(stations, now)
         await self._stuck(stations, now)
+        await incident_rules.auth_backend(self, snapshot)
+        await incident_rules.backend_backlog(self, snapshot)
+        await incident_rules.meter_drift(self, snapshot, now)
+        await incident_rules.ignores_limit(self, snapshot, now)
 
     # ---- offline tracking -------------------------------------------------
     def _track_offline(self, stations: list[dict], now: float) -> None:
@@ -181,7 +262,7 @@ class IncidentManager:
         return affected
 
     # ---- station keeps rebooting -------------------------------------------
-    def _crash_loops(self, stations: list[dict], now: float) -> None:
+    async def _crash_loops(self, stations: list[dict], now: float) -> None:
         by_site: dict[str, list[str]] = {}
         for st in stations:
             if len(self._drops.get(st["id"], ())) >= FLAP_COUNT:
@@ -192,8 +273,11 @@ class IncidentManager:
                 inc = self._new(key, "crash_loop", "critical", f"Reboot loop at {code}", code, sorted(ids))
                 inc.add("detected", f"{len(ids)} charger(s) dropped {FLAP_COUNT}+ times in {FLAP_WINDOW_S // 60} min: "
                                     f"{', '.join(sorted(ids))}. Pattern matches a bad firmware update.", short="reboot loop")
-                inc.add("response", "Firmware rollback requested for these chargers (simulated). Automatic resets "
-                                    "are paused for them, since resetting a crash loop only adds load.", "auto-rule", short="firmware rollback")
+                inc.add("response", "Automatic resets paused for these chargers: resetting a crash loop only adds "
+                                    "load.", "auto-rule", short="resets paused")
+                await self._ask(inc, "rollback", {"stations": sorted(ids)},
+                                f"Roll back the firmware on {len(ids)} charger(s) at {code}?",
+                                "Rollback should stop the loop but undoes the update on those chargers.")
             else:
                 inc = self.open[key]
                 new = sorted(set(ids) - set(inc.stations))
@@ -216,7 +300,7 @@ class IncidentManager:
         return any(sid in i.stations for k, i in self.open.items() if k.startswith("crash-loop:"))
 
     # ---- single station offline ----------------------------------------------
-    def _station_offline(self, stations: list[dict], outage_sites: set[str], now: float) -> None:
+    async def _station_offline(self, stations: list[dict], outage_sites: set[str], now: float) -> None:
         for st in stations:
             sid, key = st["id"], f"offline:{st['id']}"
             since = self._offline_since.get(sid)
@@ -232,10 +316,9 @@ class IncidentManager:
                     self._close(key, "Station reconnected by itself.", short="reconnected")
                 elif covered:
                     self.open.pop(key)  # folded into the site/crash-loop incident
-                elif now - since >= TRUCK_ROLL_OFFLINE_S and not inc.memo.get("truck"):
-                    inc.memo["truck"] = True
-                    inc.add("response", "Still offline: truck roll dispatched (simulated), technician ETA 2 h.",
-                            "auto-rule", short="truck roll")
+                elif now - since >= TRUCK_ROLL_OFFLINE_S and not self._asked(inc, "truck_roll"):
+                    await self._ask(inc, "truck_roll", {"station": sid}, f"Send a technician to {sid}?",
+                                    f"Offline for {TRUCK_ROLL_OFFLINE_S // 60} min; a truck roll costs about €150.")
 
     # ---- faults ------------------------------------------------------------------
     async def _faults(self, stations: list[dict], now: float) -> None:
@@ -271,25 +354,19 @@ class IncidentManager:
                 # Came back while we were watching: physical problem, resets won't help.
                 inc.memo.pop("verify_from")
                 inc.status = "open"
-                inc.memo["truck"] = True
                 inc.add("update", "Fault came back after the reset: this is hardware, not software.", short="fault back")
-                inc.add("response", "Truck roll dispatched (simulated), technician ETA 2 h. No more resets; charger "
-                                    "stays out of service until fixed.", "auto-rule", short="truck roll")
+                if not self._asked(inc, "truck_roll"):
+                    await self._ask(inc, "truck_roll", {"station": sid}, f"Send a technician to {sid}?",
+                                    "The fault returned after a remote reset, so it needs hands on site (about €150).")
                 continue
             age = now - inc.opened_at
-            if not inc.memo.get("reset_at") and not inc.memo.get("truck") and age >= FAULT_RESET_AFTER_S \
+            if not inc.memo.get("reset_at") and not self._asked(inc, "truck_roll") and age >= FAULT_RESET_AFTER_S \
                     and st.get("connected"):
-                inc.memo["reset_at"] = now
-                try:
-                    await self.clients.csms.reset(sid, "Soft")
-                    inc.add("response", "Soft reset sent (OCPP Reset).", "auto-rule", short="soft reset")
-                except UpstreamError as exc:
-                    inc.add("response", f"Soft reset failed: {exc}.", "auto-rule", short="reset failed")
-            elif inc.memo.get("reset_at") and not inc.memo.get("truck") \
+                await self._run(inc, "reset", {"station": sid}, "auto-rule")
+            elif inc.memo.get("reset_at") and not self._asked(inc, "truck_roll") \
                     and now - inc.memo["reset_at"] >= TRUCK_ROLL_AFTER_RESET_S:
-                inc.memo["truck"] = True
-                inc.add("response", "Reset didn't help: truck roll dispatched (simulated), technician ETA 2 h.",
-                        "auto-rule", short="truck roll")
+                await self._ask(inc, "truck_roll", {"station": sid}, f"Send a technician to {sid}?",
+                                "A remote reset didn't clear the fault (about €150 per visit).")
 
     # ---- connector stuck in a transitional status ----------------------------------------
     async def _stuck(self, stations: list[dict], now: float) -> None:
@@ -332,16 +409,18 @@ class IncidentManager:
                 continue
             if inc.memo.get("verify_from") is not None:
                 inc.memo.pop("verify_from")
-                inc.status, inc.memo["truck"] = "open", True
-                inc.add("response", "Stuck again after the reset: truck roll dispatched (simulated).", "auto-rule",
-                        short="truck roll")
-            elif not inc.memo.get("reset_at") and now - inc.memo.get("asked_at", now) >= STUCK_RESET_AFTER_S:
-                inc.memo["reset_at"] = now
-                try:
-                    await self.clients.csms.reset(sid, "Soft")
-                    inc.add("response", "Still stuck: soft reset sent (OCPP Reset).", "auto-rule", short="soft reset")
-                except UpstreamError as exc:
-                    inc.add("response", f"Soft reset failed: {exc}.", "auto-rule", short="reset failed")
+                inc.status = "open"
+                inc.add("update", "Stuck again after the reset.", short="stuck again")
+                if not self._asked(inc, "truck_roll"):
+                    await self._ask(inc, "truck_roll", {"station": sid}, f"Send a technician to {sid}?",
+                                    "The connector gets stuck again after a reset (about €150 per visit).")
+            elif not inc.memo.get("reset_at") and not self._asked(inc, "reset") \
+                    and now - inc.memo.get("asked_at", now) >= STUCK_RESET_AFTER_S:
+                if any((c.get("power_w") or 0) > 100 for c in stuck):
+                    await self._ask(inc, "reset", {"station": sid}, f"Reset {sid} while it is still charging?",
+                                    "Its status is stuck, but energy is flowing: a reset ends the driver's session.")
+                else:
+                    await self._run(inc, "reset", {"station": sid}, "auto-rule")
 
     # ---- events from other parts of the system ---------------------------------------
     def grid_cap(self, ev: dict) -> None:

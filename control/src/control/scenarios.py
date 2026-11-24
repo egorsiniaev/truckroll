@@ -41,6 +41,7 @@ class Ctx:
 
     clients: object
     limits: object
+    world: object
     sites: dict[str, dict]
     stations: list[dict]
     rng: random.Random
@@ -110,6 +111,77 @@ def _overheat(c: Ctx) -> list[Step]:
     return [Step(0, "power module overheats on one charger", fault),
             Step(80, "still too hot: the fault returns after the reset", refault),
             Step(240, "technician replaces the fan on site", clear)]
+
+
+# --- backend and metering faults (injected in the CSMS, detected only from what it reports) -------------
+def _csms(**settings):
+    async def run(c: Ctx) -> None:
+        await c.clients.csms.chaos(**settings)
+    return run
+
+
+def _charging_at(c: Ctx, code: str) -> list[dict]:
+    busy = [s for s in c.stations_at(code) if any(conn.get("transaction_id") for conn in s.get("connectors", []))]
+    return busy or c.stations_at(code)
+
+
+def _auth_slow(c: Ctx) -> list[Step]:
+    return [Step(0, "the RFID auth service starts answering in 35 s", _csms(auth_delay_s=35)),
+            Step(330, "auth service recovers", _csms(auth_delay_s=0))]
+
+
+async def _auth_cleanup(c: Ctx) -> None:
+    await c.clients.csms.chaos(auth_delay_s=0, free_vend=False)
+
+
+def _meter_drift(c: Ctx) -> list[Step]:
+    async def drift(cx: Ctx) -> None:
+        st = cx.picked.setdefault("meter", [cx.rng.choice(_charging_at(cx, "A2-HUB"))])[0]
+        await cx.clients.csms.chaos(meter_factor={st["id"]: 3.0})
+
+    return [Step(0, "one charger's energy meter starts reading 3x the real energy", drift),
+            Step(480, "meter replaced", _csms(meter_factor={}))]
+
+
+async def _meter_cleanup(c: Ctx) -> None:
+    await c.clients.csms.chaos(meter_factor={})
+
+
+def _ignores_limit(c: Ctx) -> list[Step]:
+    async def ignore(cx: Ctx) -> None:
+        st = cx.picked.setdefault("deaf", [cx.rng.choice(_charging_at(cx, "A2-HUB"))])[0]
+        await cx.clients.csms.chaos(drop_profiles=[st["id"]])
+        # A tight limit, so ignoring it is visible.
+        await cx.limits.set("operator", st["id"], 20_000)
+
+    return [Step(0, "a charger accepts power limits but never applies them; a 20 kW limit is set", ignore)]
+
+
+async def _ignores_cleanup(c: Ctx) -> None:
+    await c.clients.csms.chaos(drop_profiles=[])
+    for st in c.picked.get("deaf", []):
+        await c.limits.set("operator", st["id"], None)
+        await c.clients.csms.availability(st["id"], "Operative")
+
+
+def _backlog(c: Ctx) -> list[Step]:
+    return [Step(0, "the backend starts answering every message in 20 s", _csms(response_delay_s=20)),
+            Step(240, "load drops; replies fast again", _csms(response_delay_s=0))]
+
+
+async def _backlog_cleanup(c: Ctx) -> None:
+    await c.clients.csms.chaos(response_delay_s=0)
+
+
+def _cold_snap(c: Ctx) -> list[Step]:
+    async def cold(cx: Ctx) -> None:
+        cx.world.override_temp["A2-HUB"] = -6.0
+
+    return [Step(0, "a cold snap: -6 °C at the highway hub", cold)]
+
+
+async def _cold_cleanup(c: Ctx) -> None:
+    c.world.override_temp.pop("A2-HUB", None)
 
 
 def _stuck(c: Ctx) -> list[Step]:
@@ -212,6 +284,19 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario("stuck-connector", "Connector stuck in Preparing", "A connector at EHV-OFFICE hangs in Preparing; "
              "nobody can charge there until the system notices.", "firmware: connector stuck in Preparing, cleared by "
              "status request or reset", 420, _stuck, _clear_faults, "⏳", ("EHV-OFFICE",)),
+    Scenario("auth-slow", "RFID auth backend slow", "Card checks take 35 s, so sessions fail to start everywhere.",
+             "backend: RFID auth service slow; sessions failed to start", 360, _auth_slow, _auth_cleanup, "🔑",
+             ("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE")),
+    Scenario("meter-drift", "Meter drift", "One hub charger's energy meter reads 3x the real energy: wrong bills.",
+             "hardware: energy meter drifting on one charger", 500, _meter_drift, _meter_cleanup, "📏", ("A2-HUB",)),
+    Scenario("ignores-limit", "Charger ignores its power limit", "A hub charger accepts a 20 kW limit but keeps "
+             "drawing full power.", "firmware: charger accepts power limits but does not apply them", 300,
+             _ignores_limit, _ignores_cleanup, "🚫", ("A2-HUB",)),
+    Scenario("backlog", "Backend overloaded", "Every backend reply takes 20 s; chargers stay connected but go quiet.",
+             "backend: CSMS overloaded, replies delayed", 260, _backlog, _backlog_cleanup, "🐌",
+             ("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE")),
+    Scenario("cold-snap", "Cold snap (expected)", "-6 °C at the hub: DC charging slows by design. Not a fault.",
+             "expected: cold weather derate (not a fault)", 240, _cold_snap, _cold_cleanup, "🥶", ("A2-HUB",)),
     Scenario("site-drop", "Depot offline", "The depot's internet line drops; all 20 chargers go dark.",
              "network: site uplink outage at AMS-DEPOT", 160, _site_drop, _clear_sites("AMS-DEPOT"), "📡", ("AMS-DEPOT",)),
     Scenario("crash-loop", "Firmware crash loop", "Three chargers at UTR-RETAIL got a bad update and keep rebooting.",
@@ -250,9 +335,10 @@ class Runner:
     """Runs one scenario at a time. time_scale < 1 speeds runs up for tests."""
 
     def __init__(self, clients, sites: list[dict], ledger: Ledger, on_event: Callable[[str, str], None],
-                 time_scale: float = 1.0, seed: int | None = None, limits=None) -> None:
+                 time_scale: float = 1.0, seed: int | None = None, limits=None, world=None) -> None:
         self.clients = clients
         self.limits = limits
+        self.world = world
         self.sites = {s["code"]: s for s in sites}
         self.ledger = ledger
         self.on_event = on_event
@@ -286,7 +372,7 @@ class Runner:
         if scenario is None:
             raise KeyError(scenario_id)
         self.current = scenario
-        self.ctx = Ctx(self.clients, self.limits, self.sites, stations, self.rng)
+        self.ctx = Ctx(self.clients, self.limits, self.world, self.sites, stations, self.rng)
         self.started_at = time.monotonic()
         self.started_iso = _iso()
         self.done_steps = []

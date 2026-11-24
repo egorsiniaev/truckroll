@@ -47,6 +47,17 @@ class CsmsClient:
         body = {"message": message, "connector_id": connector_id}
         return await _json(self._http.post(url, json=body, timeout=TIMEOUT_S + 10), "csms trigger")
 
+    async def chaos(self, **settings) -> dict:
+        return await _json(self._http.post(f"{self._base}/chaos", json=settings, timeout=TIMEOUT_S), "csms chaos")
+
+    async def stats(self) -> dict:
+        return await _json(self._http.get(f"{self._base}/stats", timeout=TIMEOUT_S), "csms stats")
+
+    async def availability(self, station_id: str, kind: str, connector_id: int = 0) -> dict:
+        url = f"{self._base}/stations/{station_id}/availability"
+        body = {"type": kind, "connector_id": connector_id}
+        return await _json(self._http.post(url, json=body, timeout=TIMEOUT_S + 10), "csms availability")
+
     async def reset(self, station_id: str, kind: str = "Soft") -> dict:
         url = f"{self._base}/stations/{station_id}/reset"
         return await _json(self._http.post(url, json={"type": kind}, timeout=TIMEOUT_S + 10), "csms reset")

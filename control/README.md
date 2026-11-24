@@ -18,6 +18,8 @@ Open-Meteo weather every 10 min, and streams one snapshot to every page over SSE
 | `POST /api/autopilot` `{enabled}` | Random scenarios every 5-10 min (on by default) |
 | `POST /api/pricing` `{enabled}` | Dynamic pricing: public tariffs follow spikes and dips (on by default) |
 | `POST /api/batteries` `{enabled}` | Site batteries (on by default) |
+| `POST /api/decisions/{id}` `{choice}` | Answer a pending question: `approve` or `reject` |
+| `POST /api/hitl` `{enabled}` | Human approval (on by default); off = every response runs automatically |
 | `GET /metrics` | Prometheus: load, queues, tariffs, money, incidents (scraped for Grafana) |
 | `POST /api/scenarios/{id}/start`, `/api/scenarios/stop` | Scripted incidents; one at a time; stop cleans up |
 
@@ -60,6 +62,22 @@ All run inside the 2 s poll loop:
   timeline entry records its actor (`system`, `auto-rule`, later `operator`), which is where human-in-the-loop
   decisions will plug in.
 - **Startup cleanup**: on the first poll, restores every site network and clears limits nobody asked for.
+
+## Human in the loop
+
+Risky responses become questions (`decisions.py`): a truck roll, resetting a charger that is still charging, a
+firmware rollback, free vend, taking a charger out of service, restarting a backend worker, a meter calibration
+visit. Each has a question, a reason, a default and a deadline (30-90 s). The page shows it as a callout on the map
+and at the top of the incidents strip. Approve, reject, or let the deadline pass: the default applies and the
+timeline says "no answer in time". Cheap, reversible steps stay automatic (status request, first soft reset,
+billing hold). The agent will plug into the same place: it proposes, a person decides.
+
+## Service levels (`slo.py`)
+
+Since local midnight, saved across restarts: uptime as experienced and excluding injected faults (connector-time
+at sites and chargers a running scenario affects), session start success (target 98 %), grid cap compliance
+(episodes over the cap for more than 60 s, target 0), flex delivery during grid-operator requests (target 95 %).
+Shown on the page when nothing is selected, and in Grafana.
 
 ## Real-world mode
 
