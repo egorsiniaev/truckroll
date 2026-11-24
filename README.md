@@ -18,7 +18,18 @@ Goals: [GOALS.md](GOALS.md). Plan: [PLAN.md](PLAN.md). Original spec: [SPEC.md](
 
 ## Status
 
-Skeleton only. Nothing runs yet.
+Week 1 runs locally: CSMS, 50 simulated stations behind Toxiproxy, OTel collector, Prometheus, Loki, Grafana.
+No public server yet; the desk charger and the public page come later.
+
+## Run locally
+
+Needs Docker with Compose (Colima works).
+
+```bash
+docker compose up -d --build   # first build of the simulator takes a few minutes
+open http://localhost:3000     # Grafana -> Truckroll fleet
+docker compose down            # stop; add -v to drop stored metrics and logs
+```
 
 ## Results
 
