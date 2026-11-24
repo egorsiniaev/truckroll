@@ -113,6 +113,14 @@ panel("timeseries", "OCPP messages/s by action", [("sum by (action) (rate(ocpp_m
       8, 28, 8, 8, "reqps")
 panel("logs", "CSMS warnings", [('{service_name="csms"} |~ "WARN|rejected|Faulted|unknown"', None)], 16, 28, 8, 8, ds=L)
 
+# Row 6: batteries and demand that went elsewhere
+panel("timeseries", "Battery state of charge", [("truckroll_site_battery_soc_ratio", "{{site}}")], 0, 36, 8, 8,
+      "percentunit", steps(RED, (0.2, ORANGE), (0.4, GREEN)), color_by_threshold=True, minv=0, maxv=1)
+panel("timeseries", "Battery power (+ charging, - supplying)", [("truckroll_site_battery_watts", "{{site}}")],
+      8, 36, 8, 8, "watt")
+panel("timeseries", "Drivers who saw the wait and went elsewhere (today)", [("truckroll_site_diverted_today", "{{site}}")],
+      16, 36, 8, 8, None, steps(GREEN, (5, ORANGE), (20, RED)), color_by_threshold=True)
+
 dashboard = {"uid": "truckroll-fleet", "title": "Truckroll fleet", "tags": ["truckroll"], "timezone": "browser",
              "schemaVersion": 41, "refresh": "15s", "time": {"from": "now-1h", "to": "now"}, "panels": panels}
 
