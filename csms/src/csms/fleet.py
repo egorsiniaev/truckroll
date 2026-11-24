@@ -110,6 +110,22 @@ class FleetStore:
             self._put(replace(station, last_seen=now))
             return station_id
 
+    def close_stale(self, station_id: str, connector_id: int | None = None) -> list[int]:
+        """Close transactions the station can no longer have: all of them after a reboot (connector None), or one
+        connector's when it reports Available. Returns the closed transaction ids."""
+        with self._lock:
+            stale = [tx for tx, (sid, cid) in self._transactions.items()
+                     if sid == station_id and (connector_id is None or cid == connector_id)]
+            if not stale:
+                return []
+            self._transactions = MappingProxyType({k: v for k, v in self._transactions.items() if k not in stale})
+            station = self._existing(station_id)
+            for cid, conn in station.connectors.items():
+                if conn.transaction_id in stale:
+                    station = _with_connector(station, cid, transaction_id=None, power_w=0.0)
+            self._put(station)
+            return stale
+
     def set_limit(self, station_id: str, watts: float | None) -> None:
         with self._lock:
             self._put(replace(self._existing(station_id), limit_w=watts))

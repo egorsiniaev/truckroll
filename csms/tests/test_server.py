@@ -181,3 +181,18 @@ async def test_booted_station_is_not_asked_to_boot(server):
         await cp.call(call.BootNotification(charge_point_model="AC22", charge_point_vendor="Truckroll"))
         await asyncio.sleep(0.3)
     assert cp.triggers == []
+
+
+async def test_reboot_and_available_close_stale_transactions(server, fleet):
+    async with station(server) as cp:
+        await cp.call(call.BootNotification(charge_point_model="AC22", charge_point_vendor="Truckroll"))
+        started = await cp.call(
+            call.StartTransaction(connector_id=1, id_tag="GOOD-TAG", meter_start=0, timestamp="2026-11-24T10:00:00Z")
+        )
+        await cp.call(call.StatusNotification(connector_id=1, error_code="NoError", status="Available"))
+        assert fleet.get(STATION).connectors[1].transaction_id is None
+
+        await cp.call(call.StartTransaction(connector_id=1, id_tag="GOOD-TAG", meter_start=0, timestamp="2026-11-24T10:01:00Z"))
+        await cp.call(call.BootNotification(charge_point_model="AC22", charge_point_vendor="Truckroll"))
+        assert fleet.get(STATION).connectors[1].transaction_id is None
+    assert started.transaction_id

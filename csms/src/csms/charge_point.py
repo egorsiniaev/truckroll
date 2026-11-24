@@ -77,6 +77,9 @@ class StationConnection(ChargePoint):
     async def on_boot(self, charge_point_vendor, charge_point_model, **kwargs):
         firmware = kwargs.get("firmware_version", "")
         self._fleet.boot(self.id, charge_point_vendor, charge_point_model, firmware, self._clock())
+        for tx in self._fleet.close_stale(self.id):
+            self._telemetry.session_stopped(self.site, "Reboot")
+            log.warning("station=%s site=%s closed stale tx=%s after reboot", self.id, self.site, tx)
         log.info("station=%s site=%s boot vendor=%s model=%s fw=%s",
                  self.id, self.site, charge_point_vendor, charge_point_model, firmware)
         return call_result.BootNotification(
@@ -118,6 +121,11 @@ class StationConnection(ChargePoint):
     @on(Action.status_notification)
     async def on_status_notification(self, connector_id, error_code, status, **kwargs):
         self._fleet.set_status(self.id, connector_id, status, error_code, self._clock())
+        if status == "Available":
+            for tx in self._fleet.close_stale(self.id, connector_id):
+                self._telemetry.session_stopped(self.site, "StaleAvailable")
+                log.warning("station=%s site=%s connector=%s closed stale tx=%s: connector reports Available",
+                            self.id, self.site, connector_id, tx)
         level = logging.WARNING if status == "Faulted" else logging.INFO
         log.log(level, "station=%s site=%s connector=%s status=%s error_code=%s",
                 self.id, self.site, connector_id, status, error_code)

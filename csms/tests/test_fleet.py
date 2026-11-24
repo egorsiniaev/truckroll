@@ -68,3 +68,18 @@ def test_meter_values_keep_previous_reading_when_one_is_missing():
     connector = fleet.get("DESK-01").connectors[1]
     assert connector.power_w == 100.0
     assert connector.energy_wh == 20.0
+
+
+def test_close_stale_after_reboot_and_on_available():
+    fleet = FleetStore()
+    fleet.connect("S-1", now=0.0)
+    a = fleet.start_transaction("S-1", connector_id=1, now=1.0)
+    b = fleet.start_transaction("S-1", connector_id=2, now=1.0)
+
+    assert fleet.close_stale("S-1", connector_id=2) == [b]
+    assert fleet.get("S-1").connectors[2].transaction_id is None
+    assert fleet.get("S-1").connectors[1].transaction_id == a
+
+    assert fleet.close_stale("S-1") == [a]
+    assert fleet.stop_transaction(a, now=2.0) is None
+    assert fleet.close_stale("S-1") == []
