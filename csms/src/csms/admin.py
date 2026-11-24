@@ -43,7 +43,9 @@ def station_json(s: Station, now: float) -> dict:
         "limit_w": s.limit_w,
         "connectors": [
             {"id": cid, "status": c.status, "error_code": c.error_code, "power_w": c.power_w,
-             "energy_wh": c.energy_wh, "transaction_id": c.transaction_id}
+             "energy_wh": c.energy_wh, "transaction_id": c.transaction_id,
+             "session_wh": max(0.0, c.energy_wh - c.meter_start_wh)
+             if c.transaction_id and c.meter_start_wh is not None else None}
             for cid, c in sorted(s.connectors.items()) if cid > 0
         ],
     }

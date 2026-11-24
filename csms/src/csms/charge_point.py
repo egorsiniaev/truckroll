@@ -102,7 +102,7 @@ class StationConnection(ChargePoint):
             log.warning("station=%s site=%s connector=%s session rejected tag_status=%s",
                         self.id, self.site, connector_id, status.value)
             return call_result.StartTransaction(transaction_id=0, id_tag_info={"status": status})
-        tx_id = self._fleet.start_transaction(self.id, connector_id, self._clock())
+        tx_id = self._fleet.start_transaction(self.id, connector_id, self._clock(), float(meter_start))
         self._telemetry.session_started(self.site)
         log.info("station=%s site=%s connector=%s session started tx=%s", self.id, self.site, connector_id, tx_id)
         return call_result.StartTransaction(transaction_id=tx_id, id_tag_info={"status": status})

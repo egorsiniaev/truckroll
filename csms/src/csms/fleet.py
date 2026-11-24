@@ -21,6 +21,7 @@ class Connector:
     power_w: float = 0.0
     energy_wh: float = 0.0
     transaction_id: int | None = None
+    meter_start_wh: float | None = None  # register reading at session start, for energy per session
 
 
 @dataclass(frozen=True)
@@ -91,11 +92,12 @@ class FleetStore:
             station = _with_connector(self._existing(station_id), connector_id, status=status, error_code=error_code)
             self._put(replace(station, last_seen=now))
 
-    def start_transaction(self, station_id: str, connector_id: int, now: float) -> int:
+    def start_transaction(self, station_id: str, connector_id: int, now: float, meter_start_wh: float | None = None) -> int:
         with self._lock:
             tx_id = next(self._tx_seq)
             self._transactions = MappingProxyType({**self._transactions, tx_id: (station_id, connector_id)})
-            station = _with_connector(self._existing(station_id), connector_id, transaction_id=tx_id)
+            station = _with_connector(self._existing(station_id), connector_id, transaction_id=tx_id,
+                                      meter_start_wh=meter_start_wh)
             self._put(replace(station, last_seen=now))
             return tx_id
 
@@ -106,7 +108,8 @@ class FleetStore:
                 return None
             station_id, connector_id = owner
             self._transactions = MappingProxyType({k: v for k, v in self._transactions.items() if k != tx_id})
-            station = _with_connector(self._existing(station_id), connector_id, transaction_id=None, power_w=0.0)
+            station = _with_connector(self._existing(station_id), connector_id, transaction_id=None, power_w=0.0,
+                                      meter_start_wh=None)
             self._put(replace(station, last_seen=now))
             return station_id
 
@@ -122,7 +125,7 @@ class FleetStore:
             station = self._existing(station_id)
             for cid, conn in station.connectors.items():
                 if conn.transaction_id in stale:
-                    station = _with_connector(station, cid, transaction_id=None, power_w=0.0)
+                    station = _with_connector(station, cid, transaction_id=None, power_w=0.0, meter_start_wh=None)
             self._put(station)
             return stale
 

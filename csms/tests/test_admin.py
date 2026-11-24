@@ -47,7 +47,7 @@ class ObedientStation(ClientChargePoint):
 async def stack():
     fleet, registry = FleetStore(), Registry()
     telemetry = Telemetry(MeterProvider().get_meter("t"), fleet)
-    srv = await serve("127.0.0.1", 0, fleet, telemetry, TagList(frozenset()), 30, resync_delay_s=10, registry=registry)
+    srv = await serve("127.0.0.1", 0, fleet, telemetry, TagList(frozenset({"X"})), 30, resync_delay_s=10, registry=registry)
     port = next(iter(srv.sockets)).getsockname()[1]
     api = httpx.AsyncClient(transport=httpx.ASGITransport(app=create_admin_app(fleet, registry)), base_url="http://admin")
     yield f"ws://127.0.0.1:{port}", api, fleet
@@ -124,3 +124,13 @@ async def test_unknown_station_is_404_and_offline_station_is_409(stack):
 async def test_negative_limit_is_rejected(stack):
     _, api, _ = stack
     assert (await api.post(f"/stations/{STATION}/limit", json={"watts": -5})).status_code == 422
+
+
+async def test_fleet_reports_energy_this_session(stack):
+    url, api, _ = stack
+    async with station(url) as cp:
+        started = await cp.call(call.StartTransaction(connector_id=1, id_tag="X", meter_start=1000, timestamp="2026-11-24T10:00:00Z"))
+        await cp.call(call.MeterValues(connector_id=1, transaction_id=started.transaction_id, meter_value=[
+            {"timestamp": "2026-11-24T10:01:00Z", "sampled_value": [{"value": "3500", "measurand": "Energy.Active.Import.Register", "unit": "Wh"}]}]))
+        body = (await api.get("/fleet")).json()
+    assert body["stations"][0]["connectors"][0]["session_wh"] == 2500
