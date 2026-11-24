@@ -18,6 +18,7 @@ from websockets.http11 import Request, Response
 from csms.auth import TagList
 from csms.charge_point import StationConnection
 from csms.fleet import FleetStore
+from csms.registry import Registry
 from csms.telemetry import Telemetry
 
 log = logging.getLogger(__name__)
@@ -57,7 +58,10 @@ async def serve(
     auth: TagList,
     heartbeat_interval_s: int,
     resync_delay_s: float = RESYNC_DELAY_S,
+    registry: Registry | None = None,
 ) -> Server:
+    registry = registry if registry is not None else Registry()
+
     async def handle(connection: ServerConnection) -> None:
         station_id = _station_id(connection.request.path)
         if connection.subprotocol != SUBPROTOCOL or not station_id:
@@ -67,6 +71,7 @@ async def serve(
         token = fleet.connect(station_id, time.time())
         log.info("station=%s connected remote=%s", station_id, connection.remote_address)
         station = StationConnection(station_id, connection, fleet, telemetry, auth, heartbeat_interval_s)
+        registry.add(station_id, token, station)
         resync = asyncio.create_task(resync_if_unknown(station, fleet, resync_delay_s))
         try:
             await station.start()
@@ -74,6 +79,7 @@ async def serve(
             log.info("station=%s disconnected code=%s", station_id, exc.rcvd.code if exc.rcvd else None)
         finally:
             resync.cancel()
+            registry.remove(station_id, token)
             fleet.disconnect(station_id, token)
 
     return await ws_serve(handle, host, port, subprotocols=[SUBPROTOCOL], process_request=_health)

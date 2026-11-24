@@ -32,6 +32,7 @@ class Station:
     vendor: str = ""
     model: str = ""
     firmware: str = ""
+    limit_w: float | None = None
     connectors: Mapping[int, Connector] = field(default_factory=lambda: MappingProxyType({}))
 
 
@@ -108,6 +109,10 @@ class FleetStore:
             station = _with_connector(self._existing(station_id), connector_id, transaction_id=None, power_w=0.0)
             self._put(replace(station, last_seen=now))
             return station_id
+
+    def set_limit(self, station_id: str, watts: float | None) -> None:
+        with self._lock:
+            self._put(replace(self._existing(station_id), limit_w=watts))
 
     def record_meter(
         self, station_id: str, connector_id: int, power_w: float | None, energy_wh: float | None, now: float

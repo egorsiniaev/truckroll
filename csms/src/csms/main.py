@@ -18,8 +18,12 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 
+import uvicorn
+
+from csms.admin import create_admin_app
 from csms.auth import load_tag_list
 from csms.fleet import FleetStore
+from csms.registry import Registry
 from csms.server import serve
 from csms.telemetry import Telemetry
 
@@ -67,8 +71,18 @@ async def _run() -> None:
     auth = load_tag_list(os.environ.get("CSMS_ID_TAGS_FILE"), os.environ.get("CSMS_ACCEPT_ANY_TAG") == "true")
     host = os.environ.get("CSMS_HOST", "0.0.0.0")
     port = _env_int("CSMS_PORT", 9000)
-    server = await serve(host, port, fleet, telemetry, auth, _env_int("CSMS_HEARTBEAT_INTERVAL_S", 30))
+    registry = Registry()
+    server = await serve(
+        host, port, fleet, telemetry, auth, _env_int("CSMS_HEARTBEAT_INTERVAL_S", 30), registry=registry
+    )
     log.info("listening on ws://%s:%d/<station_id>", host, port)
+    admin_port = _env_int("CSMS_ADMIN_PORT", 9001)
+    admin = uvicorn.Server(
+        uvicorn.Config(create_admin_app(fleet, registry), host=host, port=admin_port, log_level="warning")
+    )
+    admin.install_signal_handlers = lambda: None  # signals are handled below
+    admin_task = asyncio.create_task(admin.serve())
+    log.info("admin api on http://%s:%d", host, admin_port)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -77,6 +91,8 @@ async def _run() -> None:
     await stop.wait()
 
     log.info("shutting down")
+    admin.should_exit = True
+    await admin_task
     server.close()
     await server.wait_closed()
     provider.shutdown()
