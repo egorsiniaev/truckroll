@@ -21,7 +21,9 @@ Goals: [GOALS.md](GOALS.md). Plan: [PLAN.md](PLAN.md). Original spec: [SPEC.md](
 ## Status
 
 Runs locally: CSMS, 50 simulated stations behind Toxiproxy, OTel collector, Prometheus, Loki, Grafana, and a
-live web page with a control panel, real-world mode (local time + live weather) and scripted incident scenarios.
+live web page with a control panel, real-world mode (local time, weather, prices), demand and money, batteries,
+13 incident scenarios, an incident engine with human-in-the-loop decisions, service levels, and a Gemini triage
+agent scored against the incident ledger.
 No public server yet; the desk charger comes when the hardware is wired.
 
 ## Run locally
