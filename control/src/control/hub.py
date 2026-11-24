@@ -66,6 +66,7 @@ class Hub:
     dynamic_pricing_default: bool = True
     batteries_default: bool = True
     hitl_default: bool = True
+    agent: object | None = None  # TriageAgent, when a Gemini key is configured
     id_tags: list = field(default_factory=lambda: [f"TR-{n:04d}" for n in range(1, 101)])
     snapshot: dict = field(default_factory=dict)
     events: deque = field(default_factory=lambda: deque(maxlen=MAX_EVENTS))
@@ -313,6 +314,7 @@ class Hub:
             "batteries_enabled": self.batteries.enabled,
             "slo": self.slo.summary(uptime, demand),
             "decisions": self.book.snapshot(),
+            "agent": self.agent.status() if self.agent is not None else None,
         }
 
     async def _automatic(self, snap: dict) -> None:
@@ -341,6 +343,9 @@ class Hub:
                 await self.tick_world(snap)
             if self._due_now("save", SAVE_EVERY_S):
                 self._save_state()
+            if self.agent is not None:
+                await self.agent.tick(self.incidents, {**snap, "events": list(self.events),
+                                                        "prices": self.prices})
             started = self.autopilot.tick(snap["stations"])
             if started:
                 self.add_event("info", f"autopilot picked a random scenario: {started}", kind="scenario")

@@ -421,6 +421,7 @@ class Runner:
                 outcome += f"; cleanup failed: {exc}"
             self.ledger.write({
                 "run_id": self.run_id, "scenario": scenario.id, "root_cause": scenario.root_cause,
+                "sites": list(scenario.sites),
                 "started": self.started_iso, "ended": _iso(), "outcome": outcome,
                 "targets": {k: [s["id"] for s in v] for k, v in ctx.picked.items()},
             })

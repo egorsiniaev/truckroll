@@ -114,6 +114,22 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
         await hub.poll_once()  # act on it now, not on the next tick
         return {"ok": True, "result": d.to_json(hub.book.clock())}
 
+    @app.post("/api/agent")
+    async def agent_toggle(body: ToggleRequest):
+        if hub.agent is None:
+            raise HTTPException(409, "no Gemini key configured")
+        hub.agent.enabled = body.value
+        hub.add_event("info", "triage agent on" if body.value else "triage agent off", kind="operator")
+        await hub.poll_once()
+        return {"ok": True, "result": hub.agent.status()}
+
+    @app.get("/api/eval")
+    async def evaluation():
+        from control.eval import evaluate
+        if hub.ledger_path is None:
+            raise HTTPException(409, "no ledger configured")
+        return evaluate(hub.ledger_path, hub.ledger_path.with_name("triage.jsonl"))
+
     @app.post("/api/hitl")
     async def hitl(body: ToggleRequest):
         hub.book.enabled = body.value

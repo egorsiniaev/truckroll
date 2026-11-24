@@ -200,6 +200,25 @@ class IncidentManager:
         except UpstreamError as exc:
             inc.add("response", f"{short} failed: {exc}.", actor, short=f"{short} failed")
 
+    async def agent_verdict(self, incident_id: str, verdict: dict, action: str | None) -> None:
+        """Write the agent's triage into the timeline; turn its suggestion into a question that defaults to no."""
+        inc = next((i for i in self.open.values() if i.id == incident_id), None)
+        if inc is None:
+            return
+        conf = round(float(verdict.get("confidence", 0)) * 100)
+        clear = " It sees nothing to do." if verdict.get("all_clear") else ""
+        inc.add("triage", f"Agent ({verdict['category']}, {conf}% sure): {verdict['summary']}{clear} "
+                          f"Evidence: {verdict['evidence']}", "agent", short=f"agent: {verdict['category']}")
+        inc.memo["agent_category"] = verdict["category"]
+        if action and not self._asked(inc, action) and not inc.memo.get(action):
+            params = {"station": inc.stations[0]} if inc.stations else {}
+            if action in ("reset", "truck_roll", "inoperative", "calibration") and not inc.stations:
+                return
+            label = verdict["next_step"].replace("_", " ")
+            await self._ask(inc, action, params, f"Agent suggests: {label}. Do it?",
+                            f"From the agent's triage ({conf}% sure). Agent suggestions need a yes.", default="reject",
+                            timeout_s=90)
+
     async def observe(self, snapshot: Mapping) -> None:
         from control import incident_rules
 
@@ -328,7 +347,9 @@ class IncidentManager:
             if faulted and key not in self.open:
                 codes = sorted({c["error_code"] for c in st["connectors"] if c["status"] == "Faulted"})
                 count = sum(c["status"] == "Faulted" for c in st["connectors"])
-                inc = self._new(key, "fault", "critical", f"{sid} reports {', '.join(codes)}", st["site"], [sid])
+                real = [c for c in codes if c != "NoError"]
+                label = ", ".join(real) if real else "a fault (no error code given)"
+                inc = self._new(key, "fault", "critical", f"{sid} reports {label}", st["site"], [sid])
                 inc.add("detected", f"{count} connector(s) faulted with {', '.join(codes)}.", short="fault")
                 inc.add("response", f"Remote soft reset in {FAULT_RESET_AFTER_S} s if it doesn't clear by itself.",
                         "auto-rule", short="reset planned")

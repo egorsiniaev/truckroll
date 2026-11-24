@@ -12,6 +12,7 @@ import uvicorn
 
 from control.app import Clients, Hub, create_app
 from control.clients import CsmsClient, SimulatorClient, ToxiproxyClient, WeatherClient
+from control.agent import TriageAgent
 from control.prices import PriceClient
 
 
@@ -43,13 +44,25 @@ def build_app():
         logging.getLogger(__name__).warning("ENTSOE_API_TOKEN not set: price data disabled")
     ledger = os.environ.get("LEDGER_FILE", "/data/ledger.jsonl")
     flag = lambda name, default: os.environ.get(name, default).lower() == "true"  # noqa: E731
+    agent = None
+    if os.environ.get("GEMINI_API_KEY"):
+        agent = TriageAgent(
+            http, os.environ["GEMINI_API_KEY"], os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+            Path(ledger).with_name("triage.jsonl") if ledger else None,
+            daily_cap=int(os.environ.get("AGENT_DAILY_CAP", "150")),
+            per_minute=int(os.environ.get("AGENT_PER_MINUTE", "6")),
+            price_in=float(os.environ.get("AGENT_PRICE_IN_USD_PER_M", "0.264")),
+            price_out=float(os.environ.get("AGENT_PRICE_OUT_USD_PER_M", "2.20")),
+            free_tier=flag("AGENT_FREE_TIER", "true"))
+    else:
+        logging.getLogger(__name__).warning("GEMINI_API_KEY not set: triage agent disabled")
     hub = Hub(sites=load_sites(os.environ.get("SITES_FILE", "/config/sites.json")), clients=clients,
               ledger_path=Path(ledger) if ledger else None,
               world_default=flag("WORLD_DEFAULT", "true"), autopilot_default=flag("AUTOPILOT_DEFAULT", "true"),
               grafana_url=os.environ.get("GRAFANA_URL", "http://localhost:3000/d/truckroll-fleet"),
               dynamic_pricing_default=flag("DYNAMIC_PRICING_DEFAULT", "true"),
               batteries_default=flag("BATTERIES_DEFAULT", "true"),
-              hitl_default=flag("HITL_DEFAULT", "true"))
+              hitl_default=flag("HITL_DEFAULT", "true"), agent=agent)
     web = os.environ.get("WEB_DIR", "/web")
     return create_app(hub, Path(web))
 
