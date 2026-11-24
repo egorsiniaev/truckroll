@@ -16,7 +16,11 @@ const CENTERS = [[-20, 0], [0, -20], [0, 20], [20, 0]];
 // Overhead line route from the substation: along y then x, or x then y, so it stays in the gaps between sites.
 const ROUTE_Y_FIRST = [true, false, false, true];
 const PLATFORM_COLORS = ["#e8eef7", "#eef3ea", "#f3eee6", "#ebe9f4"];
-const CAR_COLOR = "#e5e7eb";
+// Cars are just cars: a mix of everyday colours. The small light on each one is the connector state.
+const CAR_COLORS = ["#f8fafc", "#cbd5e1", "#334155", "#dc2626", "#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#0f172a", "#e5e7eb"];
+const carColor = (n) => CAR_COLORS[(n * 7 + 3) % CAR_COLORS.length];
+const QUEUE_SLOTS = 8;
+export const loadClass = (ratio) => (ratio == null ? "load-low" : ratio >= 0.7 ? "load-high" : ratio >= 0.3 ? "load-mid" : "load-low");
 const LINE_Z = 2.2;
 
 let refs = null;
@@ -28,7 +32,10 @@ export function buildScene(svg, sites, stations, onSelect) {
   const gridLayer = el("g", { class: "grid-layer" });
   const siteLayer = el("g", { class: "site-layer" });
   const labelLayer = el("g", { class: "label-layer" });
-  svg.append(gridLayer, siteLayer, labelLayer);
+  // Selection marker sits above everything, so cars and canopies never hide it.
+  const selectRing = el("ellipse", { rx: 30, ry: 17, class: "select-ring top", visibility: "hidden" });
+  svg.append(gridLayer, siteLayer, selectRing, labelLayer);
+  refs.selectRing = selectRing;
   buildSubstation(gridLayer);
 
   sites.forEach((site, i) => {
@@ -104,6 +111,7 @@ function buildSite(siteLayer, labelLayer, gridLayer, site, stations, ox, oy, ind
     const ped = box(x, y, 0, 0.5, 0.36, 1.0, STATE_COLORS.available, "ped");
     const [ax, ay] = iso(x + 0.25, y + 0.18, 1.6);
     const alert = el("circle", { cx: ax, cy: ay, r: 7, class: "alert-ring", visibility: "hidden" });
+    const pos = iso(x + 0.25, y + 0.18, 0.5);
     const title = el("title", {}, [st.id]);
     sg.append(title, ped.g, alert);
     objects.push({ depth: x + y + 0.9, node: sg });
@@ -111,17 +119,31 @@ function buildSite(siteLayer, labelLayer, gridLayer, site, stations, ox, oy, ind
     const cars = [];
     for (let c = 0; c < n; c++) {
       const cx = n === 1 ? x - 0.12 : x - 0.85 + c * 1.3;
-      const car = buildCar(cx, y + 0.6);
+      const car = buildCar(cx, y + 0.6, carColor(k * 2 + c + index * 5));
       cars.push(car);
       objects.push({ depth: cx + y + 2.2, node: car.g });
     }
-    stationRefs[st.id] = { g: sg, ped, cars, flow, title, alert };
+    stationRefs[st.id] = { g: sg, ped, cars, flow, title, alert, pos };
     refs.stations[st.id] = stationRefs[st.id];
   });
 
+  // Waiting lane along the site's left edge: queued cars appear here.
+  const queueCars = [];
+  for (let q = 0; q < QUEUE_SLOTS; q++) {
+    const qy = oy + 5.2 + q * 1.4;
+    const car = buildCar(ox - 1.05, qy, carColor(q * 3 + index));
+    car.light.remove();
+    queueCars.push(car);
+    objects.push({ depth: ox + qy - 1, node: car.g });
+  }
+  const [qx, qy] = iso(ox - 0.7, oy + 4.6, 1.2);
+  const queueText = el("text", { x: qx, y: qy, class: "queue-text", "text-anchor": "middle" }, [""]);
+
   objects.sort((a, b) => a.depth - b.depth).forEach((o) => g.append(o.node));
+  g.append(queueText);
   siteLayer.append(g);
-  return { g, platform, gridFlow, busFlow, label: buildLabel(labelLayer, site, ox, oy, index), stations: stationRefs };
+  return { g, platform, gridFlow, busFlow, queueCars, queueText,
+    label: buildLabel(labelLayer, site, ox, oy, index), stations: stationRefs };
 }
 
 function windows(b, list) {
@@ -186,10 +208,10 @@ function chargerLayout(count, connectors) {
   return Array.from({ length: count }, (_, k) => [x0 + (k % cols) * dx, y0 + Math.floor(k / cols) * dy]);
 }
 
-function buildCar(x, y) {
+function buildCar(x, y, color) {
   const g = el("g", { class: "car hidden" });
-  const body = box(x, y, 0, 0.75, 1.25, 0.32, CAR_COLOR, "car");
-  const cabin = box(x + 0.08, y + 0.3, 0.32, 0.6, 0.65, 0.24, CAR_COLOR, "car");
+  const body = box(x, y, 0, 0.75, 1.25, 0.32, color, "car");
+  const cabin = box(x + 0.08, y + 0.3, 0.32, 0.6, 0.65, 0.24, color === "#0f172a" ? "#475569" : color, "car");
   const [gx, gy] = iso(x + 0.38, y + 0.6, 0.75);
   const light = el("circle", { cx: gx, cy: gy, r: 3.2, class: "plug-light" });
   g.append(body.g, cabin.g, light);
@@ -256,6 +278,12 @@ function setTag(label, text) {
 
 export function updateScene(snapshot, selected) {
   if (!refs) return;
+  const picked = selected?.type === "station" ? refs.stations[selected.id] : null;
+  refs.selectRing.setAttribute("visibility", picked ? "visible" : "hidden");
+  if (picked) {
+    refs.selectRing.setAttribute("cx", picked.pos[0]);
+    refs.selectRing.setAttribute("cy", picked.pos[1]);
+  }
   const NB = " ";
   const sitesByCode = Object.fromEntries(snapshot.sites.map((s) => [s.code, s]));
   const open = (snapshot.incidents || []).filter((i) => i.status === "open");
@@ -263,11 +291,13 @@ export function updateScene(snapshot, selected) {
   for (const [code, r] of Object.entries(refs.sites)) {
     const s = sitesByCode[code];
     if (!s) continue;
-    const avail = s.availability == null ? "–" : `${Math.round(s.availability * 100)}%`;
-    r.label.sub.textContent = `${(s.power_w / 1000).toFixed(0)} of ${(s.cap_w / 1000).toFixed(0)}${NB}kW · ${avail} available${s.network.latency_ms ? ` · +${s.network.latency_ms}${NB}ms` : ""}`;
+    const queue = s.demand?.queue ?? 0;
+    r.label.sub.textContent = `${(s.power_w / 1000).toFixed(0)} of ${(s.cap_w / 1000).toFixed(0)}${NB}kW · ${s.free}/${s.connectors_total} free${queue ? ` · ${queue} waiting` : ""}${s.network.latency_ms ? ` · +${s.network.latency_ms}${NB}ms` : ""}`;
     const used = Math.min(1, s.cap_used ?? 0);
     r.label.bar.setAttribute("width", (r.label.barWidth * used).toFixed(1));
-    r.label.bar.classList.toggle("over", (s.cap_used ?? 0) > 1 || s.controller?.active);
+    r.label.bar.setAttribute("class", `barfg ${loadClass(s.cap_used)}`);
+    r.queueCars.forEach((car, q) => car.g.classList.toggle("hidden", q >= queue));
+    r.queueText.textContent = queue > QUEUE_SLOTS ? `+${queue - QUEUE_SLOTS} waiting` : queue ? `${queue} waiting` : "";
     const siteOpen = open.filter((i) => i.site === code).length;
     setTag(r.label, !s.network.enabled ? "OUTAGE" : siteOpen ? `${siteOpen} INCIDENT${siteOpen > 1 ? "S" : ""}` : "");
     const w = s.weather;

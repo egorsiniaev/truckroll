@@ -1,5 +1,5 @@
 // Details and control panel. Renders from the latest snapshot; actions POST to the control API.
-import { STATE_COLORS } from "./scene.js";
+import { STATE_COLORS, loadClass } from "./scene.js";
 
 const NB = " ";
 export const kw = (w) => `${(w / 1000).toFixed(1)}${NB}kW`;
@@ -7,6 +7,7 @@ const kwh = (wh) => `${(wh / 1000).toFixed(1)}${NB}kWh`;
 const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const LATENCIES = [0, 500, 2000, 5000];
+const eur = (v) => `${v < 0 ? "−" : ""}€${Math.abs(v ?? 0).toFixed(2)}`;
 const mins = (s) => (s == null ? "–" : s >= 60 ? `${Math.round(s / 60)}${NB}min` : `${Math.round(s)}${NB}s`);
 
 let toastTimer = null;
@@ -40,7 +41,7 @@ const stat = (value, label) => `<div class="stat"><b>${value}</b><span>${label}<
 
 function rulesList(rules) {
   if (!rules?.length) return `<p class="hint">No real-world rules for&nbsp;this site.</p>`;
-  return `<ul class="rules">${rules.map((r) => `<li class="${r.active ? "" : "muted"}">${r.active ? "● active:" : "○ standby:"} ${esc(r.text)}</li>`).join("")}</ul>`;
+  return `<ul class="rules">${rules.map((r) => `<li class="${r.active ? "active" : "muted"}">${r.active ? "● active:" : "○ standby:"} ${esc(r.text)}</li>`).join("")}</ul>`;
 }
 
 export function renderSite(root, site, snapshot, ctx) {
@@ -48,15 +49,30 @@ export function renderSite(root, site, snapshot, ctx) {
   const stations = snapshot.stations.filter((s) => s.site === site.code);
   const used = site.cap_used ?? 0;
   const ctl = site.controller;
+  const dem = site.demand || {};
+  const money = site.economics || {};
   root.innerHTML = `
     <h3>${esc(site.code)}</h3>
     <p class="meta">${esc(site.kind)} · ${site.stations} stations · ${site.stations * site.connectors} connectors</p>
     <div class="grid2">
-      ${stat(kw(site.power_w), `of ${kw(site.cap_w)} grid cap`)}
-      ${stat(pct(site.availability), "connectors available")}
+      ${stat(kw(site.power_w), `of ${kw(site.cap_w)} grid cap (${Math.round(used * 100)}%)`)}
+      ${stat(`${site.free}/${site.connectors_total}`, "connectors free now")}
+      ${stat(`${dem.queue ?? 0}`, dem.queue ? `waiting, longest ${mins(dem.longest_wait_s)}` : "cars waiting")}
+      ${stat(pct(site.availability), "uptime (working connectors)")}
     </div>
-    <div class="bar"><i class="${used > 1 || ctl?.active ? "over" : ""}" style="width:${Math.min(100, used * 100).toFixed(1)}%"></i></div>
-    ${ctl?.active ? `<p class="meta">Site controller active: chargers share the cap at ${kw(ctl.share_w)} each.</p>` : ""}
+    <div class="bar"><i class="${loadClass(site.cap_used)}" style="width:${Math.min(100, used * 100).toFixed(1)}%"></i></div>
+    ${ctl?.active ? `<p class="meta">Site controller active: chargers share the cap at ${kw(ctl.share_w)} each, so sessions take longer.</p>` : ""}
+    <h4>Demand</h4>
+    <p class="meta">${dem.arrivals_per_hour ?? 0} cars/hour arriving now · ${dem.completed ?? 0} done today · ${dem.abandoned ?? 0} gave up waiting · ${dem.interrupted ?? 0} interrupted${dem.avg_wait_s ? ` · average wait ${mins(dem.avg_wait_s)}` : ""}</p>
+    <h4>Money today</h4>
+    <table class="money">
+      <tr><td>Tariff now</td><td>€${(money.tariff_eur_kwh ?? 0).toFixed(2)}/kWh</td></tr>
+      <tr><td>Energy cost now (spot + fees)</td><td>€${(money.buy_eur_kwh ?? 0).toFixed(2)}/kWh</td></tr>
+      <tr><td>Sold ${(money.energy_kwh ?? 0).toFixed(0)}${NB}kWh (${(money.solar_kwh ?? 0).toFixed(0)} from solar)</td><td>${eur(money.revenue_eur)}</td></tr>
+      <tr><td>Bought ${(money.grid_kwh ?? 0).toFixed(0)}${NB}kWh from the grid</td><td>${eur(-(money.cost_eur ?? 0))}</td></tr>
+      <tr class="total"><td>Margin</td><td class="${(money.margin_eur ?? 0) < 0 ? "neg" : "pos"}">${eur(money.margin_eur)}</td></tr>
+      <tr><td class="muted">Lost to waits and interruptions</td><td class="muted">${eur(money.lost_eur)}</td></tr>
+    </table>
     <h4>Real-world rules here</h4>
     ${rulesList(site.rules)}
     <h4>Weather and&nbsp;solar now</h4>
@@ -148,6 +164,13 @@ function sparkline(prices) {
     <line class="now" x1="${x(idx).toFixed(1)}" x2="${x(idx).toFixed(1)}" y1="0" y2="${H}"></line></svg>`;
 }
 
+function fleetMoney(snapshot) {
+  const f = snapshot.economics?.fleet;
+  if (!f) return "";
+  return `<div class="row"><div class="what"><b>Today: ${eur(f.margin_eur)} margin</b>
+    <span>${eur(f.revenue_eur)} sold, ${eur(f.cost_eur)} energy cost, ${eur(f.lost_eur)} lost to waits</span></div></div>`;
+}
+
 export function renderControls(root, snapshot, meta) {
   const world = snapshot.world || {};
   const ap = snapshot.autopilot || {};
@@ -161,6 +184,9 @@ export function renderControls(root, snapshot, meta) {
     ${world.enabled && activeRules.length ? `<ul class="active-rules">${activeRules.map((r) => `<li>● ${esc(r.site)}: ${esc(r.text)}</li>`).join("")}</ul>` : ""}
     <div class="row"><div class="what"><b>Random scenarios</b><span>${ap.enabled ? (run ? "waiting for the current one to end" : `next in ${mins(ap.next_in_s)}`) : "off"}</span></div>
       <button class="switch ${ap.enabled ? "on" : ""}" data-act="autopilot" aria-label="Random scenarios"></button></div>
+    <div class="row"><div class="what"><b>Dynamic pricing</b><span>public tariffs follow price spikes; dearer chargers lose drivers to&nbsp;competitors</span></div>
+      <button class="switch ${snapshot.economics?.dynamic ? "on" : ""}" data-act="pricing" aria-label="Dynamic pricing"></button></div>
+    ${fleetMoney(snapshot)}
     <h4>Power price (ENTSO-E, NL day-ahead)</h4>
     ${prices.available ? `<div class="row"><div class="what"><b>€${prices.now_eur_mwh.toFixed(0)}/MWh now${prices.expensive ? " · expensive" : ""}</b>
       <span>today €${prices.min_eur_mwh.toFixed(0)} to €${prices.max_eur_mwh.toFixed(0)}, red band = top 20%</span></div></div>${sparkline(prices)}`
@@ -178,6 +204,7 @@ export function renderControls(root, snapshot, meta) {
     </table>
     <div class="control"><button class="mini" data-act="clear-chaos">Restore all networks</button></div>`;
   root.querySelector('[data-act="world"]').onclick = (e) => post("/api/world", { enabled: !world.enabled }, e.target);
+  root.querySelector('[data-act="pricing"]').onclick = (e) => post("/api/pricing", { enabled: !snapshot.economics?.dynamic }, e.target);
   root.querySelector('[data-act="autopilot"]').onclick = (e) => post("/api/autopilot", { enabled: !ap.enabled }, e.target);
   root.querySelectorAll("[data-scenario]").forEach((b) => { b.onclick = () => post(`/api/scenarios/${b.dataset.scenario}/start`, {}, b); });
   root.querySelectorAll("[data-outage]").forEach((b) => { b.onclick = () => post(`/api/sites/${b.dataset.outage}/outage`, { on: b.dataset.on === "true" }, b); });

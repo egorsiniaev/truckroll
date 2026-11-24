@@ -17,11 +17,12 @@
       </p>
     </div>
     <div class="kpis" id="kpis">
-      <div class="kpi" data-kpi="availability"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Availability</span></div></div>
-      <div class="kpi" data-kpi="online"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Online</span></div></div>
+      <div class="kpi" data-kpi="availability" title="Connectors that work (free or in use) out of all connectors"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Uptime</span></div></div>
       <div class="kpi" data-kpi="charging"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Charging</span></div></div>
+      <div class="kpi" data-kpi="queue"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Cars waiting</span></div></div>
       <div class="kpi" data-kpi="power"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Power vs caps</span></div></div>
       <div class="kpi" data-kpi="price"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Power price</span></div></div>
+      <div class="kpi" data-kpi="margin" title="Revenue minus energy cost since local midnight"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Margin today</span></div></div>
       <div class="kpi" data-kpi="incidents"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Open incidents</span></div></div>
       <a id="grafana" class="metrics" href="http://localhost:3000/d/truckroll-fleet" target="_blank" rel="noopener">Metrics in&nbsp;Grafana ↗</a>
     </div>
@@ -41,13 +42,19 @@
       </div>
     </section>
 
+    <div class="zoom">
+      <button id="zoom-in" aria-label="Zoom in">+</button>
+      <button id="zoom-out" aria-label="Zoom out">−</button>
+      <button id="zoom-home" aria-label="Reset view">⤢</button>
+    </div>
+
     <section class="legend">
       <span><i class="dot available"></i>Available</span>
       <span><i class="dot preparing"></i>Preparing</span>
       <span><i class="dot charging"></i>Charging</span>
       <span><i class="dot faulted"></i>Faulted</span>
       <span><i class="dot offline"></i>Offline</span>
-      <span class="sep"><i class="car-icon"></i>Car plugged in; its light is&nbsp;the&nbsp;connector state</span>
+      <span class="sep"><i class="car-icon"></i>Car plugged in; its light is&nbsp;the&nbsp;connector state. Cars on&nbsp;the&nbsp;left edge are waiting.</span>
     </section>
   </main>
 

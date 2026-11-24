@@ -44,6 +44,49 @@ function switchTab(tab) {
 }
 document.querySelectorAll(".tabs button").forEach((b) => { b.onclick = () => { switchTab(b.dataset.tab); render(); }; });
 
+// Pan and zoom: drag the map, wheel or buttons to zoom. A drag never counts as a click.
+const HOME = { x: -960, y: -520, w: 1760, h: 1000 };
+let vb = { ...HOME };
+const applyView = () => svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+applyView();
+const unitsPerPx = () => Math.max(vb.w / svg.clientWidth, vb.h / svg.clientHeight);
+let drag = null;
+let suppressClick = false;
+svg.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, vb: { ...vb }, moved: false }; });
+window.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x;
+  const dy = e.clientY - drag.y;
+  if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+  drag.moved = true;
+  svg.classList.add("dragging");
+  const k = unitsPerPx();
+  vb = { ...vb, x: drag.vb.x - dx * k, y: drag.vb.y - dy * k };
+  applyView();
+});
+window.addEventListener("pointerup", () => {
+  if (drag?.moved) suppressClick = true;
+  drag = null;
+  svg.classList.remove("dragging");
+});
+svg.addEventListener("click", (e) => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); suppressClick = false; } }, true);
+function zoom(factor, cx, cy) {
+  const w = Math.min(4000, Math.max(400, vb.w * factor));
+  const h = w * (vb.h / vb.w);
+  const px = cx ?? vb.x + vb.w / 2;
+  const py = cy ?? vb.y + vb.h / 2;
+  vb = { x: px - (px - vb.x) * (w / vb.w), y: py - (py - vb.y) * (h / vb.h), w, h };
+  applyView();
+}
+svg.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+  zoom(e.deltaY > 0 ? 1.1 : 1 / 1.1, pt.x, pt.y);
+}, { passive: false });
+document.getElementById("zoom-in").onclick = () => zoom(1 / 1.25);
+document.getElementById("zoom-out").onclick = () => zoom(1.25);
+document.getElementById("zoom-home").onclick = () => { vb = { ...HOME }; applyView(); };
+
 // Incidents panel: collapsed state survives reloads.
 if (localStorage.getItem("feedCollapsed") === "1") feedBox.classList.add("collapsed");
 document.getElementById("feed-toggle").onclick = () => {
@@ -73,10 +116,14 @@ const forcedPhase = new URLSearchParams(location.search).get("phase"); // previe
 function renderHeader() {
   const k = snapshot.kpis;
   const capTotal = snapshot.sites.reduce((a, s) => a + s.cap_w, 0);
-  setKpi("availability", k.availability, k.availability == null ? "–" : `${Math.round(k.availability * 100)}%`);
-  setKpi("online", k.stations_total ? k.stations_online / k.stations_total : 0, `${k.stations_online}/${k.stations_total}`);
-  setKpi("charging", k.connectors_total ? k.charging / k.connectors_total : 0, `${k.charging}`);
-  setKpi("power", capTotal ? k.power_w / capTotal : 0, `${(k.power_w / 1000).toFixed(0)}${NB}kW`);
+  setKpi("availability", k.availability, k.availability == null ? "–" : `${Math.round(k.availability * 100)}%`, (k.availability ?? 1) < 0.95);
+  setKpi("charging", k.connectors_total ? k.charging / k.connectors_total : 0, `${k.charging}/${k.connectors_total}`);
+  setKpi("queue", Math.min(1, (k.queue ?? 0) / 10), `${k.queue ?? 0}`, (k.queue ?? 0) >= 5);
+  const load = capTotal ? k.power_w / capTotal : 0;
+  setKpi("power", load, `${(k.power_w / 1000).toFixed(0)}${NB}kW`);
+  document.querySelector('.kpi[data-kpi="power"]').dataset.load = load >= 0.7 ? "high" : load >= 0.3 ? "mid" : "low";
+  const money = snapshot.economics?.fleet;
+  if (money) setKpi("margin", money.revenue_eur ? Math.max(0, money.margin_eur / money.revenue_eur) : 0, `€${money.margin_eur.toFixed(0)}`, money.margin_eur < 0);
   const p = snapshot.prices || {};
   setKpi("price", p.available ? p.rank : 0, p.available ? `€${p.now_eur_mwh.toFixed(0)}/MWh` : "–", !!p.expensive);
   const open = (snapshot.incidents || []).filter((i) => i.status === "open").length;
