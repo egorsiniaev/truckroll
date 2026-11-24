@@ -20,6 +20,7 @@ from control.clients import UpstreamError
 log = logging.getLogger(__name__)
 
 START_TIMEOUT_S = 40
+RUNNING = {"Charging", "SuspendedEV", "SuspendedEVSE"}
 WARM_START_HOURS = 0.5  # on start, seed each site with about half an hour of arrivals so the map isn't empty  # a requested session that never shows up on the CSMS goes back to the queue
 DONE_SHARE = 0.9  # leaving with 90 % of what you wanted counts as a full session
 
@@ -124,6 +125,7 @@ class DemandEngine:
             for _ in range(arrivals):
                 st.queue.append(Car(next(self._ids), code, self.rng.uniform(*prof.need_kwh) * 1000, now,
                                     self.rng.uniform(*prof.patience_min) * 60, self.rng.choice(self.id_tags)))
+            texts += self._adopt(code, st, prof, stations, now)
             texts += await self._progress(code, st, stations, now)
             texts += self._give_up(code, st, now)
             await self._assign(code, st, stations, now)
@@ -162,6 +164,23 @@ class DemandEngine:
                 del st.sessions[key]
                 st.completed += 1
         return texts
+
+    def _adopt(self, code: str, st: SiteDemand, prof: Profile, stations: Mapping, now: float) -> list[str]:
+        """Running sessions we don't track (after a restart of this service or the CSMS): take them over and let
+        them finish normally, so connectors are never stuck charging forever."""
+        tracked = {s.tx for s in st.sessions.values()}
+        adopted = 0
+        for s in stations.values():
+            if s["site"] != code or not s.get("connected"):
+                continue
+            for c in s.get("connectors", []):
+                key = (s["id"], c["id"])
+                tx = c.get("transaction_id")
+                if tx and c["status"] in RUNNING and tx not in tracked and key not in st.sessions:
+                    car = Car(next(self._ids), code, self.rng.uniform(*prof.need_kwh) * 500, now, 0, "adopted")
+                    st.sessions[key] = Session(car, s["id"], c["id"], now, start_wh=c.get("energy_wh") or 0.0, tx=tx)
+                    adopted += 1
+        return [f"{code}: took over {adopted} running session{'s' if adopted > 1 else ''} after a restart"] if adopted else []
 
     def _give_up(self, code: str, st: SiteDemand, now: float) -> list[str]:
         gone = [c for c in st.queue if now - c.arrived > c.patience_s]

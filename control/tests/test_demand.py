@@ -78,7 +78,7 @@ async def test_impatient_drivers_leave_and_count_as_lost():
     t[0] = 61
     texts = await eng.tick(snap([("S-1", 1, "Charging", 3, 0)]), {"S": 0.0}, {"S": 1.0})
     assert eng.status()["S"]["abandoned"] == 1 and lost == [("S", 8.0)]
-    assert "gave up" in texts[0]
+    assert any("gave up" in t for t in texts)
 
 
 async def test_interrupted_session_and_start_timeout():
@@ -103,3 +103,12 @@ async def test_failed_start_keeps_car_in_queue():
     eng.state["S"].queue.append(Car(1, "S", 1000, 0, 9999, "TAG"))
     await eng.tick(snap([("S-1", 1, "Available", None, 0)]), {"S": 0.0}, {"S": 1.0})
     assert len(eng.state["S"].queue) == 1 and not eng.state["S"].sessions
+
+
+async def test_untracked_running_sessions_are_adopted_and_finish():
+    eng, t, _ = engine()
+    texts = await eng.tick(snap([("S-1", 1, "Charging", 461, 1000)]), {"S": 0.0}, {"S": 1.0})
+    assert "took over 1 running session" in texts[0]
+    t[0] += 5
+    await eng.tick(snap([("S-1", 1, "Charging", 461, 100_000)]), {"S": 0.0}, {"S": 1.0})
+    assert ("stop", "S-1", 461) in eng.clients.simulator.calls
