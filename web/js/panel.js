@@ -241,6 +241,8 @@ export function renderControls(root, snapshot, meta) {
     <div class="row"><div class="what"><b>Real-world mode</b><span>local time sets demand, weather and&nbsp;prices set limits</span></div>
       <button class="switch ${world.enabled ? "on" : ""}" data-act="world" aria-label="Real-world mode"></button></div>
     ${world.enabled && activeRules.length ? `<ul class="active-rules">${activeRules.map((r) => `<li>● ${esc(r.site)}: ${esc(r.text)}</li>`).join("")}</ul>` : ""}
+    <div class="row"><div class="what"><b>Human approval</b><span>risky responses wait for you; no answer in&nbsp;time means the&nbsp;default</span></div>
+      <button class="switch ${snapshot.decisions?.enabled ? "on" : ""}" data-act="hitl" aria-label="Human approval"></button></div>
     <div class="row"><div class="what"><b>Random scenarios</b><span>${ap.enabled ? (run ? "waiting for the current one to end" : `next in ${mins(ap.next_in_s)}`) : "off"}</span></div>
       <button class="switch ${ap.enabled ? "on" : ""}" data-act="autopilot" aria-label="Random scenarios"></button></div>
     <div class="row"><div class="what"><b>Dynamic pricing</b><span>public tariffs follow price spikes; dearer chargers lose drivers to&nbsp;competitors</span></div>
@@ -265,6 +267,7 @@ export function renderControls(root, snapshot, meta) {
     </table>
     <div class="control"><button class="mini" data-act="clear-chaos">Restore all networks</button></div>`;
   root.querySelector('[data-act="world"]').onclick = (e) => post("/api/world", { enabled: !world.enabled }, e.target);
+  root.querySelector('[data-act="hitl"]').onclick = (e) => post("/api/hitl", { enabled: !snapshot.decisions?.enabled }, e.target);
   root.querySelector('[data-act="batteries"]').onclick = (e) => post("/api/batteries", { enabled: !snapshot.batteries_enabled }, e.target);
   root.querySelector('[data-act="pricing"]').onclick = (e) => post("/api/pricing", { enabled: !snapshot.economics?.dynamic }, e.target);
   root.querySelector('[data-act="autopilot"]').onclick = (e) => post("/api/autopilot", { enabled: !ap.enabled }, e.target);
@@ -349,4 +352,21 @@ export function renderKpi(root, id, snapshot) {
     ${info.extra ? info.extra(snapshot) : ""}
     <p>${esc(info.what)}</p>
     ${rows.length ? `<table>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table>` : `<p class="hint">Nothing right now.</p>`}`;
+}
+
+
+const SLO_FMT = { ratio: (v) => `${(v * 100).toFixed(v >= 0.995 && v < 1 ? 2 : 1)}%`, count: (v) => `${v}` };
+const SLO_TARGET = { ratio: (v, hb) => `${hb ? "≥" : "≤"} ${(v * 100).toFixed(0)}%`, count: (v) => `${v}` };
+
+export function renderSlo(root, snapshot) {
+  const rows = snapshot.slo || [];
+  root.innerHTML = `
+    <h3>Service levels today</h3>
+    <p class="meta">Since ${esc(snapshot.kpis?.uptime_since || "midnight")}. The targets are from GOALS.md.</p>
+    <table class="slo">${rows.map((r) => `<tr class="${r.status.replace(" ", "-")}">
+      <td><b>${esc(r.name)}</b><br><span class="muted">${esc(r.detail)}</span></td>
+      <td class="v">${r.value == null ? "–" : SLO_FMT[r.unit](r.value)}</td>
+      <td class="t">target ${SLO_TARGET[r.unit](r.target, r.id !== "cap")}</td>
+      <td><span class="slo-pill">${esc(r.status)}</span></td></tr>`).join("")}</table>
+    <p class="hint">Click a&nbsp;site, a&nbsp;charger, a&nbsp;metric or&nbsp;an&nbsp;incident for details. Click empty map to&nbsp;come back here.</p>`;
 }

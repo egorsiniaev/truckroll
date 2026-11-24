@@ -1,6 +1,6 @@
 // Wires the live stream to the scene, header, incident feed and panel.
-import { esc, renderControls, renderKpi, renderSite, renderStation } from "./panel.js";
-import { buildScene, updateScene } from "./scene.js";
+import { esc, post, renderControls, renderKpi, renderSite, renderSlo, renderStation } from "./panel.js";
+import { buildScene, screenPos, updateScene } from "./scene.js";
 
 const NB = " ";
 const svg = document.getElementById("scene");
@@ -47,7 +47,7 @@ document.querySelectorAll(".tabs button").forEach((b) => { b.onclick = () => { s
 // Pan and zoom: drag the map, wheel or buttons to zoom. A drag never counts as a click.
 const HOME = { x: -800, y: -700, w: 1600, h: 1180 }; // room at the top for the incidents strip
 let vb = { ...HOME };
-const applyView = () => svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+const applyView = () => { svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); renderCallouts(); };
 applyView();
 const unitsPerPx = () => Math.max(vb.w / svg.clientWidth, vb.h / svg.clientHeight);
 let drag = null;
@@ -76,7 +76,6 @@ svg.addEventListener("click", (e) => {
   if (!selected) return;
   selected = null;
   history.replaceState(null, "", location.search || location.pathname);
-  details.innerHTML = `<p class="hint">Click a&nbsp;site, a&nbsp;charger or&nbsp;an&nbsp;incident to&nbsp;see what’s going on and&nbsp;to&nbsp;control&nbsp;it.</p>`;
   render();
 });
 // Clicking a KPI chip explains it.
@@ -142,7 +141,8 @@ function renderHeader() {
   const p = snapshot.prices || {};
   setKpi("price", p.available ? p.rank : 0, p.available ? `€${p.now_eur_mwh.toFixed(0)}/MWh` : "–", !!p.expensive);
   const open = (snapshot.incidents || []).filter((i) => i.status === "open").length;
-  setKpi("incidents", Math.min(1, open / 5), `${open}`, open > 0);
+  const asks = snapshot.decisions?.pending?.length ?? 0;
+  setKpi("incidents", Math.min(1, open / 5), asks ? `${open} · ${asks} ask${asks > 1 ? "" : "s"} you` : `${open}`, open > 0 || asks > 0);
 
   const d = snapshot.daylight;
   if (d) {
@@ -164,6 +164,42 @@ function renderHeader() {
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const ACTOR = { system: "", "auto-rule": "auto rule", operator: "operator", scenario: "scenario" };
 const STEP = { detected: "What", response: "Response", update: "Update", recovered: "Recovered" };
+
+function questionHtml(d, compact = false) {
+  const def = d.default === "approve" ? "yes" : "no";
+  return `<div class="q-text"><b>${esc(d.question)}</b>${compact ? "" : ` <span class="muted">${esc(d.why)}</span>`}</div>
+    <div class="q-actions"><button class="mini primary" data-dec="${esc(d.id)}" data-choice="approve">Approve</button>
+    <button class="mini" data-dec="${esc(d.id)}" data-choice="reject">Reject</button>
+    <span class="q-clock" title="No answer means ${def}">${d.seconds_left}${NB}s → ${def}</span></div>`;
+}
+
+function wireDecisionButtons(root) {
+  root.querySelectorAll("[data-dec]").forEach((b) => {
+    b.onclick = (e) => { e.stopPropagation(); post(`/api/decisions/${b.dataset.dec}`, { choice: b.dataset.choice }, b); };
+  });
+}
+
+function renderQuestions() {
+  const pending = snapshot.decisions?.pending ?? [];
+  const list = document.getElementById("questions");
+  list.innerHTML = pending.length ? `<li class="q-head">Waiting for you</li>` + pending.map((d) =>
+    `<li class="question">${questionHtml(d)}</li>`).join("") : "";
+  wireDecisionButtons(list);
+}
+
+function renderCallouts() {
+  const box = document.getElementById("callouts");
+  if (!box || !snapshot) return;
+  const stage = box.parentElement.getBoundingClientRect();
+  const pending = (snapshot.decisions?.pending ?? []).slice(0, 4);
+  box.innerHTML = pending.map((d) => {
+    const station = d.stations?.length === 1 ? d.stations[0] : null;
+    const pos = station ? screenPos(svg, "station", station) : screenPos(svg, "site", d.site === "ALL" ? snapshot.sites[0]?.code : d.site);
+    if (!pos) return "";
+    return `<div class="callout" style="left:${(pos.x - stage.left).toFixed(0)}px;top:${(pos.y - stage.top).toFixed(0)}px">${questionHtml(d, true)}</div>`;
+  }).join("");
+  wireDecisionButtons(box);
+}
 
 function incidentAge(i) {
   if (i.status === "recovered") return `fixed in ${Math.max(1, Math.round(i.ttr_s / 60))}${NB}min`;
@@ -211,7 +247,7 @@ function controlsBusy() {
 function renderPanel() {
   if (Date.now() < holdUntil) return;
   if (activeTab === "controls") { if (!controlsBusy()) renderControls(controls, snapshot, meta); return; }
-  if (!selected) return;
+  if (!selected) { renderSlo(details, snapshot); return; }
   if (selected.type === "kpi") { renderKpi(details, selected.id, snapshot); return; }
   if (selected.type === "site") {
     const site = snapshot.sites.find((s) => s.code === selected.id);
@@ -232,7 +268,9 @@ function render() {
   }
   updateScene(snapshot, selected);
   renderHeader();
+  renderQuestions();
   renderFeed();
+  renderCallouts();
   renderPanel();
 }
 

@@ -376,3 +376,20 @@ export function updateScene(snapshot, selected) {
     r.g.classList.toggle("selected", selected?.type === "station" && selected.id === id);
   }
 }
+
+
+// Screen position (client pixels) of a station or a site's label, for HTML overlays like decision callouts.
+export function screenPos(svg, kind, id) {
+  if (!refs) return null;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  let x, y;
+  if (kind === "station" && refs.stations[id]) [x, y] = refs.stations[id].pos;
+  else if (refs.sites[id]) {
+    const t = refs.sites[id].label.g.transform.baseVal.consolidate();
+    if (!t) return null;
+    [x, y] = [t.matrix.e, t.matrix.f + 60];
+  } else return null;
+  const p = new DOMPoint(x, y).matrixTransform(ctm);
+  return { x: p.x, y: p.y };
+}
