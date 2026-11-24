@@ -26,6 +26,9 @@ FAULT_RESET_AFTER_S = 45
 TRUCK_ROLL_AFTER_RESET_S = 120
 FLAP_COUNT, FLAP_WINDOW_S, FLAP_STABLE_S = 3, 180, 120
 VERIFY_AFTER_FIX_S = 120  # after a remote fix, watch this long before calling it recovered
+STUCK_STATES = {"Preparing", "Finishing"}  # transitional: a connector should pass through them in about a minute
+STUCK_AFTER_S = 180
+STUCK_RESET_AFTER_S = 60  # after asking the charger to re-report its status
 KEEP_CLOSED = 25
 
 
@@ -102,6 +105,7 @@ class IncidentManager:
         self._crash_loops(stations, now)
         self._station_offline(stations, outage_sites, now)
         await self._faults(stations, now)
+        await self._stuck(stations, now)
 
     # ---- offline tracking -------------------------------------------------
     def _track_offline(self, stations: list[dict], now: float) -> None:
@@ -257,6 +261,58 @@ class IncidentManager:
                 inc.memo["truck"] = True
                 inc.add("response", "Reset didn't help: truck roll dispatched (simulated), technician ETA 2 h.",
                         "auto-rule", short="truck roll")
+
+    # ---- connector stuck in a transitional status ----------------------------------------
+    async def _stuck(self, stations: list[dict], now: float) -> None:
+        for st in stations:
+            sid = st["id"]
+            stuck = [c for c in st.get("connectors", []) if st.get("connected") and c["status"] in STUCK_STATES
+                     and (c.get("status_age_s") or 0) >= STUCK_AFTER_S]
+            key = f"stuck:{sid}"
+            if stuck and key not in self.open and f"fault:{sid}" not in self.open and not self._looping(sid):
+                c = stuck[0]
+                flowing = (c.get("power_w") or 0) > 100
+                inc = self._new(key, "stuck", "warning", f"{sid} stuck in {c['status']}", st["site"], [sid])
+                inc.memo["connector"] = c["id"]
+                detail = (" while energy is flowing: the charger's status and its meter disagree"
+                          if flowing else ": no session is starting, the connector is blocked")
+                inc.add("detected", f"Connector {c['id']} has been {c['status']} for {_dur(c['status_age_s'])}{detail}.",
+                        short=f"stuck {c['status']}")
+                try:
+                    await self.clients.csms.trigger(sid, "StatusNotification", c["id"])
+                    inc.add("response", "Asked the charger to re-send its status (OCPP TriggerMessage).", "auto-rule",
+                            short="ask status")
+                except UpstreamError as exc:
+                    inc.add("response", f"Status request failed: {exc}.", "auto-rule", short="ask failed")
+                inc.memo["asked_at"] = now
+                continue
+            if key not in self.open:
+                continue
+            inc = self.open[key]
+            if not stuck:
+                if inc.memo.get("verify_from") is None and inc.memo.get("reset_at"):
+                    inc.memo["verify_from"] = now
+                    inc.status = "monitoring"
+                    inc.add("update", "Connector moved on after the reset. Watching before closing.", "auto-rule",
+                            short="watching")
+                elif inc.memo.get("verify_from") is not None:
+                    if now - inc.memo["verify_from"] >= VERIFY_AFTER_FIX_S:
+                        self._close(key, "Connector stayed healthy after the reset.", "auto-rule", short="fixed remotely")
+                else:
+                    self._close(key, "Connector moved on after the status request.", "auto-rule", short="unstuck")
+                continue
+            if inc.memo.get("verify_from") is not None:
+                inc.memo.pop("verify_from")
+                inc.status, inc.memo["truck"] = "open", True
+                inc.add("response", "Stuck again after the reset: truck roll dispatched (simulated).", "auto-rule",
+                        short="truck roll")
+            elif not inc.memo.get("reset_at") and now - inc.memo.get("asked_at", now) >= STUCK_RESET_AFTER_S:
+                inc.memo["reset_at"] = now
+                try:
+                    await self.clients.csms.reset(sid, "Soft")
+                    inc.add("response", "Still stuck: soft reset sent (OCPP Reset).", "auto-rule", short="soft reset")
+                except UpstreamError as exc:
+                    inc.add("response", f"Soft reset failed: {exc}.", "auto-rule", short="reset failed")
 
     # ---- events from other parts of the system ---------------------------------------
     def grid_cap(self, ev: dict) -> None:

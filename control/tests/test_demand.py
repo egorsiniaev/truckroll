@@ -112,3 +112,12 @@ async def test_untracked_running_sessions_are_adopted_and_finish():
     t[0] += 5
     await eng.tick(snap([("S-1", 1, "Charging", 461, 100_000)]), {"S": 0.0}, {"S": 1.0})
     assert ("stop", "S-1", 461) in eng.clients.simulator.calls
+
+
+async def test_session_info_gives_expected_finish_and_preparing_sessions_are_adopted():
+    eng, t, _ = engine()
+    await eng.tick(snap([("S-1", 1, "Preparing", 32, 0)]), {"S": 0.0}, {"S": 1.0})
+    stations = {"S-1": {"id": "S-1", "connectors": [{"id": 1, "energy_wh": 2000, "power_w": 10_000}]}}
+    info = eng.session_info(stations)["S-1#1"]
+    assert info["adopted"] and info["delivered_kwh"] == 2.0
+    assert abs(info["eta_s"] - (info["need_kwh"] * 1000 - 2000) / 10_000 * 3600) < 20  # need_kwh is rounded

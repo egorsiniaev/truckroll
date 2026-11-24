@@ -112,6 +112,17 @@ def _overheat(c: Ctx) -> list[Step]:
             Step(240, "technician replaces the fan on site", clear)]
 
 
+def _stuck(c: Ctx) -> list[Step]:
+    async def stick(cx: Ctx) -> None:
+        free = [s for s in cx.stations_at("EHV-OFFICE")
+                if any(conn.get("status") == "Available" for conn in s.get("connectors", []))]
+        pool = free or cx.stations_at("EHV-OFFICE")
+        st = cx.picked.setdefault("stuck", [cx.rng.choice(pool)])[0]
+        await cx.clients.simulator.set_status(st["id"], st["connectors"][0]["id"], "Preparing", "NoError")
+
+    return [Step(0, "a connector gets stuck in Preparing: the cable lock handshake never completes", stick)]
+
+
 def _lock_failure(c: Ctx) -> list[Step]:
     async def fault(cx: Ctx) -> None:
         st = cx.pick("lock", "UTR-RETAIL")[0]
@@ -198,6 +209,9 @@ SCENARIOS: tuple[Scenario, ...] = (
              "hardware: power module overtemperature on a single charger", 250, _overheat, _clear_faults, "🌡️", ("A2-HUB",)),
     Scenario("lock-failure", "Jammed connector lock", "A connector lock jams at UTR-RETAIL; a remote reset frees it.",
              "hardware: connector lock failure, fixed by remote reset", 120, _lock_failure, _clear_faults, "🔒", ("UTR-RETAIL",)),
+    Scenario("stuck-connector", "Connector stuck in Preparing", "A connector at EHV-OFFICE hangs in Preparing; "
+             "nobody can charge there until the system notices.", "firmware: connector stuck in Preparing, cleared by "
+             "status request or reset", 420, _stuck, _clear_faults, "⏳", ("EHV-OFFICE",)),
     Scenario("site-drop", "Depot offline", "The depot's internet line drops; all 20 chargers go dark.",
              "network: site uplink outage at AMS-DEPOT", 160, _site_drop, _clear_sites("AMS-DEPOT"), "📡", ("AMS-DEPOT",)),
     Scenario("crash-loop", "Firmware crash loop", "Three chargers at UTR-RETAIL got a bad update and keep rebooting.",

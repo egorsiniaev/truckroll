@@ -124,3 +124,46 @@ async def test_grid_cap_and_flex_lifecycle():
     m.flex_request("T", False)
     kinds = sorted((i["kind"], i["status"]) for i in m.snapshot())
     assert kinds == [("flex_request", "recovered"), ("grid_cap", "recovered")]
+
+
+class StuckCsms(Csms):
+    def __init__(self):
+        super().__init__()
+        self.triggers = []
+
+    async def trigger(self, sid, message="StatusNotification", connector_id=None):
+        self.triggers.append((sid, message, connector_id))
+
+
+async def test_stuck_connector_asks_for_status_then_resets_then_watches():
+    from control.incidents import STUCK_AFTER_S, STUCK_RESET_AFTER_S
+    m, t, clients = manager()
+    clients.csms = StuckCsms()
+
+    def stuck(age):
+        s = station("S-1")
+        s["connectors"] = [{"id": 1, "status": "Preparing", "error_code": "NoError", "status_age_s": age, "power_w": 0}]
+        return s
+
+    await m.observe(snap([stuck(STUCK_AFTER_S - 1), station("S-2")]))
+    assert m.snapshot() == []
+    await m.observe(snap([stuck(STUCK_AFTER_S), station("S-2")]))
+    [inc] = m.snapshot()
+    assert inc["kind"] == "stuck" and clients.csms.triggers == [("S-1", "StatusNotification", 1)]
+    t[0] += STUCK_RESET_AFTER_S
+    await m.observe(snap([stuck(STUCK_AFTER_S + 60), station("S-2")]))
+    assert clients.csms.resets == ["S-1"]
+    await m.observe(snap([station("S-1"), station("S-2")]))
+    assert m.snapshot()[0]["status"] == "monitoring"
+    assert [e["short"] for e in m.snapshot()[0]["timeline"]] == ["stuck Preparing", "ask status", "soft reset", "watching"]
+
+
+async def test_stuck_connector_that_moves_on_after_status_request_closes():
+    from control.incidents import STUCK_AFTER_S
+    m, t, clients = manager()
+    clients.csms = StuckCsms()
+    s = station("S-1")
+    s["connectors"] = [{"id": 1, "status": "Finishing", "error_code": "NoError", "status_age_s": STUCK_AFTER_S, "power_w": 0}]
+    await m.observe(snap([s, station("S-2")]))
+    await m.observe(snap([station("S-1"), station("S-2")]))
+    assert m.snapshot()[0]["status"] == "recovered"

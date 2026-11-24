@@ -179,8 +179,11 @@ class Hub:
                               "price_factor": factor}
             site["rules"] = [r.__dict__ for r in self.world.rules if r.site == site["code"]]
             site["controller"] = self.controller.status().get(site["code"])
+        sessions = self.demand.session_info({s["id"]: s for s in snap["stations"]})
         for st in snap["stations"]:
             st["limit_sources"] = {SOURCE_LABELS.get(k, k): v for k, v in self.limits.sources_for(st["id"]).items()}
+            for c in st.get("connectors", []):
+                c["session"] = sessions.get(f"{st['id']}#{c['id']}")
 
         if self.snapshot.get("stations"):
             for ev in group_events(detect_events(self.snapshot["stations"], snap["stations"])):

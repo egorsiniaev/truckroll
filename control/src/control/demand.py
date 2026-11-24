@@ -20,7 +20,9 @@ from control.clients import UpstreamError
 log = logging.getLogger(__name__)
 
 START_TIMEOUT_S = 40
-RUNNING = {"Charging", "SuspendedEV", "SuspendedEVSE"}
+# A transaction can sit in any of these; a charger reporting the wrong one must not strand the session.
+ADOPTABLE = {"Charging", "SuspendedEV", "SuspendedEVSE", "Preparing", "Finishing"}
+MIN_POWER_FOR_ETA_W = 200
 WARM_START_HOURS = 0.5  # on start, seed each site with about half an hour of arrivals so the map isn't empty  # a requested session that never shows up on the CSMS goes back to the queue
 DONE_SHARE = 0.9  # leaving with 90 % of what you wanted counts as a full session
 
@@ -97,6 +99,23 @@ class DemandEngine:
                 "arrivals_per_hour": round(self.rates.get(code, 0.0), 1),
                 "completed": st.completed, "interrupted": st.interrupted, "abandoned": st.abandoned,
             }
+        return out
+
+    def session_info(self, stations: Mapping[str, Mapping]) -> dict[str, dict]:
+        """Per "station#connector": what the car needs, what it has, and when it should be done at current power."""
+        out = {}
+        for st in self.state.values():
+            for (sid, cid), sess in st.sessions.items():
+                conn = next((c for c in stations.get(sid, {}).get("connectors", []) if c["id"] == cid), None)
+                if conn is None:
+                    continue
+                delivered = max(0.0, (conn.get("energy_wh") or 0.0) - sess.start_wh) if sess.start_wh is not None else 0.0
+                remaining = max(0.0, sess.car.need_wh - delivered)
+                power = conn.get("power_w") or 0.0
+                eta = remaining / power * 3600 if power >= MIN_POWER_FOR_ETA_W and sess.tx else None
+                out[f"{sid}#{cid}"] = {"need_kwh": round(sess.car.need_wh / 1000, 1), "delivered_kwh": round(delivered / 1000, 1),
+                                       "eta_s": round(eta) if eta is not None else None, "starting": sess.tx is None,
+                                       "adopted": sess.car.id_tag == "adopted"}
         return out
 
     def _arrivals(self, code: str, rate_per_h: float, dt: float) -> int:
@@ -176,7 +195,7 @@ class DemandEngine:
             for c in s.get("connectors", []):
                 key = (s["id"], c["id"])
                 tx = c.get("transaction_id")
-                if tx and c["status"] in RUNNING and tx not in tracked and key not in st.sessions:
+                if tx and c["status"] in ADOPTABLE and tx not in tracked and key not in st.sessions:
                     car = Car(next(self._ids), code, self.rng.uniform(*prof.need_kwh) * 500, now, 0, "adopted")
                     st.sessions[key] = Session(car, s["id"], c["id"], now, start_wh=c.get("energy_wh") or 0.0, tx=tx)
                     adopted += 1

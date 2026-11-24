@@ -42,6 +42,11 @@ class CsmsClient:
         url = f"{self._base}/stations/{station_id}/limit"
         return await _json(self._http.post(url, json={"watts": watts}, timeout=TIMEOUT_S + 10), "csms limit")
 
+    async def trigger(self, station_id: str, message: str = "StatusNotification", connector_id: int | None = None) -> dict:
+        url = f"{self._base}/stations/{station_id}/trigger"
+        body = {"message": message, "connector_id": connector_id}
+        return await _json(self._http.post(url, json=body, timeout=TIMEOUT_S + 10), "csms trigger")
+
     async def reset(self, station_id: str, kind: str = "Soft") -> dict:
         url = f"{self._base}/stations/{station_id}/reset"
         return await _json(self._http.post(url, json={"type": kind}, timeout=TIMEOUT_S + 10), "csms reset")
