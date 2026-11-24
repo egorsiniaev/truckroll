@@ -11,13 +11,14 @@ let snapshot = null;
 let selected = null;
 let builtFor = "";
 let holdUntil = 0; // pause panel re-render while the user drags a slider
-let activeTab = "details";
+let activeTab = "details"; // "#controls" in the URL opens the control panel
 
 function selectionFromHash() {
   const m = location.hash.match(/^#(site|station)=(.+)$/);
   return m ? { type: m[1], id: decodeURIComponent(m[2]) } : null;
 }
 selected = selectionFromHash();
+if (location.hash === "#controls") activeTab = "controls";
 window.addEventListener("hashchange", () => { selected = selectionFromHash(); render(); });
 
 const ctx = {
@@ -58,6 +59,13 @@ function renderHeader() {
   const errs = Object.keys(snapshot.upstream_errors || {});
   live.className = `live ${errs.length ? "err" : "ok"}`;
   live.textContent = errs.length ? `degraded: ${errs.join(", ")}` : "live";
+  const banner = document.getElementById("banner");
+  const run = snapshot.scenario?.running;
+  const parts = [];
+  if (run) parts.push(`Scenario running: ${run.title} (${Math.round(run.elapsed_s)}/${run.duration_s}\u00a0s)`);
+  if (snapshot.world?.enabled) parts.push("Real-world mode on");
+  banner.hidden = !parts.length;
+  banner.textContent = parts.join(" · ");
 }
 
 function renderFeed() {
@@ -73,7 +81,7 @@ function renderFeed() {
 
 function renderPanel() {
   if (Date.now() < holdUntil) return;
-  if (activeTab === "controls") { renderControls(controls, snapshot); return; }
+  if (activeTab === "controls") { renderControls(controls, snapshot, meta); return; }
   if (!selected) return;
   if (selected.type === "site") {
     const site = snapshot.sites.find((s) => s.code === selected.id);
@@ -101,6 +109,7 @@ function render() {
 async function start() {
   meta = await (await fetch("/api/meta")).json();
   snapshot = await (await fetch("/api/state")).json();
+  switchTab(activeTab);
   render();
   // ?static renders one snapshot without the live stream (used for screenshots).
   if (new URLSearchParams(location.search).has("static")) return;

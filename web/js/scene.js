@@ -249,7 +249,8 @@ export function updateScene(snapshot, selected) {
     const w = s.weather;
     r.label.wIcon.replaceChildren(...weatherIcon(w));
     r.label.wText.textContent = w && w.temp_c != null ? `${Math.round(w.temp_c)}°C` : "";
-    r.label.wSub.textContent = w && w.gust_kmh != null ? `gusts ${Math.round(w.gust_kmh)} km/h${w.stale ? " (stale)" : ""}` : "";
+    const solar = s.solar_w ? ` · ☀ ${(s.solar_w / 1000).toFixed(0)} kW` : "";
+    r.label.wSub.textContent = w && w.gust_kmh != null ? `gusts ${Math.round(w.gust_kmh)} km/h${solar}${w.stale ? " (stale)" : ""}` : "";
     r.gridFlow.classList.toggle("down", !s.network.enabled);
     setFlow(r.gridFlow, s.network.enabled && s.power_w > 0, used);
     setFlow(r.busFlow, s.power_w > 0, used);
