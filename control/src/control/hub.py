@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections import deque
@@ -11,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from control.autopilot import Autopilot
+from control.battery import BatteryFleet
 from control.clients import CsmsClient, SimulatorClient, ToxiproxyClient, UpstreamError, WeatherClient
 from control.controller import SiteController
 from control.daylight import daylight
@@ -33,6 +35,7 @@ WORLD_EVERY_S = 60
 WEATHER_EVERY_S = 600
 PRICES_EVERY_S = 3600
 PRICES_RETRY_S = 600
+SAVE_EVERY_S = 60
 MAX_EVENTS = 80
 
 
@@ -58,6 +61,7 @@ class Hub:
     autopilot_default: bool = False
     grafana_url: str | None = None
     dynamic_pricing_default: bool = True
+    batteries_default: bool = True
     id_tags: list = field(default_factory=lambda: [f"TR-{n:04d}" for n in range(1, 101)])
     snapshot: dict = field(default_factory=dict)
     events: deque = field(default_factory=lambda: deque(maxlen=MAX_EVENTS))
@@ -80,8 +84,56 @@ class Hub:
         self.autopilot = Autopilot(self.runner, enabled=self.autopilot_default)
         self.economics = Economics(self.sites, dynamic=self.dynamic_pricing_default)
         self.uptime = UptimeTracker([s["code"] for s in self.sites])
+        self.batteries = BatteryFleet(self.sites, enabled=self.batteries_default)
+        self.state_path = self.ledger_path.with_name("state.json") if self.ledger_path else None
+        self._load_state()
         self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
                                    on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices))
+
+    # ---- survive restarts: uptime, today's money, battery charge -------------------
+    def _save_state(self) -> None:
+        if not self.state_path or not self.uptime.day:
+            return
+        data = {
+            "day": self.uptime.day, "uptime_since": self.uptime.since,
+            "uptime": {c: [v.up_s, v.total_s] for c, v in self.uptime.per_site.items()},
+            "economics_day": self.economics.day,
+            "economics": {c: led.__dict__ for c, led in self.economics.today.items()},
+            "battery_soc_kwh": {c: b.soc_kwh for c, b in self.batteries.batteries.items()},
+        }
+        try:
+            tmp = self.state_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data))
+            tmp.replace(self.state_path)
+        except OSError as exc:
+            log.warning("state save failed: %s", exc)
+
+    def _load_state(self) -> None:
+        if not self.state_path or not self.state_path.exists():
+            return
+        try:
+            data = json.loads(self.state_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("state load failed, starting fresh: %s", exc)
+            return
+        from control.economics import Ledger
+        from control.uptime import Counter
+        today = datetime.now(UTC).astimezone(self.uptime_tz()).strftime("%Y-%m-%d")
+        if data.get("day") == today:
+            self.uptime.day, self.uptime.since = today, data.get("uptime_since", "")
+            self.uptime.per_site = {c: Counter(*v) for c, v in data.get("uptime", {}).items()}
+        if data.get("economics_day") == today:
+            self.economics.day = today
+            self.economics.today = {c: Ledger(**v) for c, v in data.get("economics", {}).items()}
+        for code, soc in data.get("battery_soc_kwh", {}).items():
+            if code in self.batteries.batteries:
+                self.batteries.batteries[code].soc_kwh = soc
+        log.info("restored uptime, money and battery state from %s", self.state_path)
+
+    @staticmethod
+    def uptime_tz():
+        from control.uptime import TZ
+        return TZ
 
     # ---- feed --------------------------------------------------------------
     def add_event(self, level: str, text: str, site: str | None = None, station: str | None = None,
@@ -159,6 +211,17 @@ class Hub:
         for site in snap["sites"]:
             site["solar_w"] = solar_w(site, site.get("weather"))
         if stations and dt:
+            self.batteries.tick(snap["sites"], self.prices, min(dt, 30.0))
+        batteries = self.batteries.status()
+        for site in snap["sites"]:
+            b = batteries.get(site["code"])
+            site["battery"] = b
+            # Grid draw = chargers - solar + battery (charging adds, discharging removes). That is what the cap limits.
+            grid = max(0.0, site["power_w"] - (site.get("solar_w") or 0.0) + ((b or {}).get("power_w") or 0.0))
+            site["grid_w"] = round(grid, 1)
+            site["cap_used"] = round(grid / site["cap_w"], 4) if site.get("cap_w") else None
+            site["battery_support_w"] = self.batteries.support_w(site["code"])
+        if stations and dt:
             self.economics.accrue(snap["sites"], self.prices, min(dt, 30.0), datetime.now(UTC))
             self.uptime.accrue(snap["stations"], min(dt, 30.0), datetime.now(UTC))
         uptime = self.uptime.summary()
@@ -175,6 +238,7 @@ class Hub:
             site["economics"] = money["sites"].get(code, {})
             site["uptime_today"] = uptime["sites"].get(code)
             site["downtime_min"] = uptime["connector_downtime_min"].get(code)
+            site["profile"] = by_code[code].get("demand")  # "demand" below becomes live demand stats
             site["demand"] = {**demand.get(code, {}), "share": shares.get(code), "reason": reasons.get(code),
                               "price_factor": factor}
             site["rules"] = [r.__dict__ for r in self.world.rules if r.site == site["code"]]
@@ -204,6 +268,7 @@ class Hub:
             "daylight": daylight(datetime.now(UTC), sun.get("sunrise"), sun.get("sunset")),
             "grafana_url": self.grafana_url,
             "economics": money,
+            "batteries_enabled": self.batteries.enabled,
         }
 
     async def _automatic(self, snap: dict) -> None:
@@ -230,6 +295,8 @@ class Hub:
                     self.add_event("info", text, kind="demand")
             if self._due_now("world", WORLD_EVERY_S):
                 await self.tick_world(snap)
+            if self._due_now("save", SAVE_EVERY_S):
+                self._save_state()
             started = self.autopilot.tick(snap["stations"])
             if started:
                 self.add_event("info", f"autopilot picked a random scenario: {started}", kind="scenario")

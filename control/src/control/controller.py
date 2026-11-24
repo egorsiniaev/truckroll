@@ -41,7 +41,8 @@ class SiteController:
                 continue
             stations = [s for s in snapshot.get("stations", []) if s["site"] == site["code"] and s.get("connected")]
             charging = [s for s in stations if s["state"] == "charging"]
-            available = site["cap_w"] + (row.get("solar_w") or 0.0)
+            # Solar and the battery's spare discharge power both add to what the chargers may draw.
+            available = site["cap_w"] + (row.get("solar_w") or 0.0) + (row.get("battery_support_w") or 0.0)
             demand = row["power_w"]
             st = self.state[site["code"]]
             st.peak_w = max(st.peak_w, demand) if st.active else demand

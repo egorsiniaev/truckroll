@@ -16,7 +16,8 @@ Open-Meteo weather every 10 min, and streams one snapshot to every page over SSE
 | `POST /api/stations/{id}/power` `{on}`, `/reset` | Switch the simulated station off/on; OCPP soft reset |
 | `POST /api/world` `{enabled}` | Real-world mode (on by default): local time sets arrivals, weather and prices set limits |
 | `POST /api/autopilot` `{enabled}` | Random scenarios every 5-10 min (on by default) |
-| `POST /api/pricing` `{enabled}` | Dynamic pricing: public tariffs follow price spikes (on by default) |
+| `POST /api/pricing` `{enabled}` | Dynamic pricing: public tariffs follow spikes and dips (on by default) |
+| `POST /api/batteries` `{enabled}` | Site batteries (on by default) |
 | `GET /metrics` | Prometheus: load, queues, tariffs, money, incidents (scraped for Grafana) |
 | `POST /api/scenarios/{id}/start`, `/api/scenarios/stop` | Scripted incidents; one at a time; stop cleans up |
 
@@ -32,6 +33,16 @@ API docs: http://localhost:8080/api/docs.
   each site's tariff (depot €0.32 fleet contract, office €0.39, retail €0.49, highway €0.69). With dynamic pricing,
   60 % of a price spike reaches public tariffs (capped at +60 %), and price-sensitive drivers go elsewhere
   (elasticity 1.2 retail, 1.5 highway). Revenue, cost, margin and revenue lost to waits reset at local midnight.
+
+- **Discounts and the app queue**: below today's average price, 80 % of the dip comes off public tariffs (down to
+  -40 %), plus 10 % off while solar covers half the site; cheaper chargers draw extra drivers (up to 1.8x). Public
+  drivers check the expected wait in an app (queue / how fast connectors free up) and go elsewhere when it is long
+  compared with their patience; counted as "diverted" and as lost revenue.
+- **Batteries** (`battery.py`): one per site (depot 400 kWh/200 kW, retail 150/75, hub 600/300, office 100/50).
+  Covers load above the grid cap first, stores spare solar, supplies the site in the day's top 20 % of prices, and
+  fills from the grid in the cheapest quarter, only within the cap. 10-95 % SoC, 90 % round trip. Its spare power
+  counts toward the site controller's allowance; load on the page is grid draw (chargers - solar + battery) vs cap.
+- **Restarts**: uptime, today's money and battery charge are saved to `/data/state.json` every minute and restored.
 
 ## Automatic parts
 
@@ -66,5 +77,5 @@ the ground truth for the triage-agent eval, so the agent must never be given acc
 
 ## Known gaps
 
-- State lives in memory: restarting this service drops a running scenario mid-way. Startup cleanup restores networks
-  and leftover limits, and the incident engine resets leftover faults, but the ledger gets no record of the cut run.
+- Restarting this service still drops a running scenario mid-way (no ledger record of the cut run) and resets the
+  queue and the open incidents; uptime, money and battery charge survive.

@@ -32,14 +32,17 @@ class Profile:
     cars_per_hour: float  # at a demand share of 1.0
     need_kwh: tuple[float, float]
     patience_min: tuple[float, float]
+    session_h: float  # typical session length, to estimate the wait an app would show
+    checks_app: bool  # public drivers look at the wait before coming; fleet vans and staff come anyway
 
 
 PROFILES: dict[str, Profile] = {
-    "depot": Profile(14, (15, 40), (120, 240)),  # vans wait; they have all night
-    "retail": Profile(30, (5, 15), (8, 20)),
-    "highway": Profile(36, (20, 45), (6, 14)),
-    "office": Profile(14, (8, 20), (30, 60)),
+    "depot": Profile(14, (15, 40), (120, 240), 2.0, False),  # vans wait; they have all night
+    "retail": Profile(30, (5, 15), (8, 20), 0.5, True),
+    "highway": Profile(36, (20, 45), (6, 14), 0.4, True),
+    "office": Profile(14, (8, 20), (30, 60), 1.2, False),
 }
+MAX_DIVERT = 0.9
 
 
 @dataclass
@@ -69,6 +72,8 @@ class SiteDemand:
     completed: int = 0
     interrupted: int = 0
     abandoned: int = 0
+    diverted: int = 0  # saw the wait in the app and went elsewhere
+    expected_wait_s: float = 0.0
     wait_s_total: float = 0.0
     served: int = 0
 
@@ -98,6 +103,7 @@ class DemandEngine:
                 "avg_wait_s": round(st.wait_s_total / st.served) if st.served else 0,
                 "arrivals_per_hour": round(self.rates.get(code, 0.0), 1),
                 "completed": st.completed, "interrupted": st.interrupted, "abandoned": st.abandoned,
+                "diverted": st.diverted, "expected_wait_s": round(st.expected_wait_s),
             }
         return out
 
@@ -141,8 +147,18 @@ class DemandEngine:
             rate = prof.cars_per_hour * shares.get(code, 0.6) * factors.get(code, 1.0)
             self.rates[code] = rate
             arrivals = round(rate * WARM_START_HOURS) if not self._warm else self._arrivals(code, rate, dt)
+            connectors = sum(len(s.get("connectors", [])) for s in stations.values() if s["site"] == code) or 1
+            # What the app shows: people ahead of you / how fast connectors free up.
+            st.expected_wait_s = len(st.queue) / (connectors / prof.session_h) * 3600
+            patience_s = sum(prof.patience_min) / 2 * 60
+            divert = min(MAX_DIVERT, st.expected_wait_s / patience_s) if prof.checks_app and self._warm else 0.0
             for _ in range(arrivals):
-                st.queue.append(Car(next(self._ids), code, self.rng.uniform(*prof.need_kwh) * 1000, now,
+                need = self.rng.uniform(*prof.need_kwh) * 1000
+                if divert and self.rng.random() < divert:
+                    st.diverted += 1
+                    self.on_lost(code, need / 1000)
+                    continue
+                st.queue.append(Car(next(self._ids), code, need, now,
                                     self.rng.uniform(*prof.patience_min) * 60, self.rng.choice(self.id_tags)))
             texts += self._adopt(code, st, prof, stations, now)
             texts += await self._progress(code, st, stations, now)

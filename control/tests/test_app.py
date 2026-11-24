@@ -186,3 +186,24 @@ async def test_metrics_endpoint_and_pricing_toggle(ctx):
     assert res.status_code == 200 and "truckroll_site_power_watts" in res.text
     await client.post("/api/pricing", json={"enabled": False})
     assert hub.economics.dynamic is False
+
+
+async def test_uptime_money_and_battery_survive_a_restart(tmp_path):
+    from datetime import UTC, datetime
+    sites = [{**SITES[0], "demand": "highway"}]
+
+    def make():
+        clients = Clients(csms=FakeCsms(), toxiproxy=FakeToxi(), simulator=FakeSim(), weather=None)
+        return Hub(sites=sites, clients=clients, ledger_path=tmp_path / "ledger.jsonl")
+
+    hub = make()
+    hub.uptime.accrue([{"id": "A2-HUB-00001", "site": "A2-HUB", "connected": False,
+                        "connectors": [{"status": "Available"}]}], 600, datetime.now(UTC))
+    hub.economics.accrue([{"code": "A2-HUB", "power_w": 10_000}], None, 3600, datetime.now(UTC))
+    hub.batteries.batteries["A2-HUB"].soc_kwh = 123.0
+    hub._save_state()
+
+    again = make()
+    assert again.uptime.per_site["A2-HUB"].total_s == 600 and again.uptime.summary()["fleet"] == 0.0
+    assert again.economics.summary()["fleet"]["energy_kwh"] == 10
+    assert again.batteries.batteries["A2-HUB"].soc_kwh == 123.0

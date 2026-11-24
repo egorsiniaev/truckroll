@@ -12,7 +12,7 @@ CALM = {"available": True, "now_eur_mwh": 120.0, "avg_eur_mwh": 150.0}
 
 def test_dynamic_pricing_passes_spikes_to_public_sites_only():
     assert tariff(HUB, SPIKE, dynamic=True) == pytest.approx(0.69 * 1.6)  # capped
-    assert tariff(HUB, CALM, dynamic=True) == 0.69
+    assert tariff(HUB, CALM, dynamic=True) == pytest.approx(0.69 * (1 - 0.2 * 0.8), abs=0.001)  # 20 % dip -> 16 % off
     assert tariff(HUB, SPIKE, dynamic=False) == 0.69
     assert tariff(DEPOT, SPIKE, dynamic=True) == 0.32  # fleet contract stays fixed
 
@@ -41,3 +41,21 @@ def test_ledger_rolls_over_at_local_midnight_and_counts_lost_revenue():
     assert econ.summary()["fleet"]["lost_eur"] == pytest.approx(6.9)
     econ.accrue([{"code": "A2-HUB", "power_w": 0}], None, 1, datetime(2026, 11, 24, 23, 30, tzinfo=UTC))  # 00:30 local
     assert econ.summary()["fleet"]["energy_kwh"] == 0
+
+
+def test_cheap_hours_and_solar_give_discounts_that_draw_drivers():
+    cheap = {"available": True, "now_eur_mwh": 50.0, "avg_eur_mwh": 150.0}
+    t = tariff(HUB, cheap, dynamic=True)
+    assert t == pytest.approx(0.69 * 0.6)  # floor
+    assert demand_factor(HUB, t) == 1.8  # capped
+    assert tariff(HUB, None, dynamic=True, solar_share=0.6) == pytest.approx(0.69 * 0.9)
+    assert tariff(DEPOT, cheap, dynamic=True) == 0.32  # contracts don't move
+
+
+def test_battery_charging_adds_and_discharging_removes_grid_energy():
+    econ = Economics([HUB], dynamic=False)
+    now = datetime(2026, 11, 24, 12, tzinfo=UTC)
+    econ.accrue([{"code": "A2-HUB", "power_w": 100_000, "battery": {"power_w": -40_000}}], CALM, 3600, now)
+    assert econ.summary()["sites"]["A2-HUB"]["grid_kwh"] == 60
+    econ.accrue([{"code": "A2-HUB", "power_w": 0, "battery": {"power_w": 50_000}}], CALM, 3600, now)
+    assert econ.summary()["sites"]["A2-HUB"]["grid_kwh"] == 110

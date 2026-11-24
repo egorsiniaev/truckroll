@@ -15,6 +15,11 @@ GRID_FEES_EUR_KWH = 0.11  # network tariff, taxes and levies on top of the spot 
 FALLBACK_SPOT_EUR_MWH = 100.0
 PASS_THROUGH = 0.6  # share of a price spike passed on to drivers when dynamic pricing is on
 MAX_TARIFF_FACTOR = 1.6
+DISCOUNT_PASS_THROUGH = 0.8  # share of a price dip passed on as a discount
+MIN_TARIFF_FACTOR = 0.6
+SOLAR_DISCOUNT = 0.10  # extra discount while solar covers at least half of the site's load
+SOLAR_DISCOUNT_FROM = 0.5
+MAX_DEMAND_FACTOR = 1.8
 
 
 @dataclass(frozen=True)
@@ -38,19 +43,31 @@ def commercial(site: Mapping) -> Commercial:
     return COMMERCIAL.get(site.get("demand", ""), Commercial(0.45, 1.0, True))
 
 
-def tariff(site: Mapping, prices: Mapping | None, dynamic: bool) -> float:
+def tariff_factor(prices: Mapping | None, solar_share: float = 0.0) -> float:
+    """Multiplier on the base tariff: up in price spikes, down in cheap hours and when solar covers the site."""
+    factor = 1.0
+    if prices and prices.get("available"):
+        avg = prices["avg_eur_mwh"] or 1.0
+        delta = (prices["now_eur_mwh"] - avg) / avg
+        factor = 1 + delta * (PASS_THROUGH if delta > 0 else DISCOUNT_PASS_THROUGH)
+    if solar_share >= SOLAR_DISCOUNT_FROM:
+        factor -= SOLAR_DISCOUNT
+    return min(MAX_TARIFF_FACTOR, max(MIN_TARIFF_FACTOR, factor))
+
+
+def tariff(site: Mapping, prices: Mapping | None, dynamic: bool, solar_share: float = 0.0) -> float:
     c = commercial(site)
-    if not dynamic or not c.public or not prices or not prices.get("available"):
+    if not dynamic or not c.public:
         return c.tariff_eur_kwh
-    avg = prices["avg_eur_mwh"] or 1.0
-    spike = max(0.0, (prices["now_eur_mwh"] - avg) / avg)
-    return round(c.tariff_eur_kwh * min(MAX_TARIFF_FACTOR, 1 + spike * PASS_THROUGH), 3)
+    return round(c.tariff_eur_kwh * tariff_factor(prices, solar_share), 3)
 
 
 def demand_factor(site: Mapping, current_tariff: float) -> float:
-    """Drivers compare with what they normally pay; a dearer charger loses some of them to competitors."""
+    """Drivers compare with what they normally pay: dearer loses some to competitors, cheaper draws extra."""
     c = commercial(site)
-    return round((c.tariff_eur_kwh / current_tariff) ** c.elasticity, 3) if current_tariff > 0 else 1.0
+    if current_tariff <= 0:
+        return 1.0
+    return round(min(MAX_DEMAND_FACTOR, (c.tariff_eur_kwh / current_tariff) ** c.elasticity), 3)
 
 
 @dataclass
@@ -84,19 +101,25 @@ class Economics:
             self.day = day
             self.today = {s["code"]: Ledger() for s in self.sites}
 
+    solar_share: dict[str, float] = field(default_factory=dict)
+
     def tariffs(self, prices: Mapping | None) -> dict[str, float]:
-        return {s["code"]: tariff(s, prices, self.dynamic) for s in self.sites}
+        return {s["code"]: tariff(s, prices, self.dynamic, self.solar_share.get(s["code"], 0.0)) for s in self.sites}
 
     def accrue(self, snapshot_sites: list[Mapping], prices: Mapping | None, dt_s: float, now: datetime) -> None:
-        """Integrate power over the last dt seconds into today's money."""
+        """Integrate power over the last dt seconds into today's money. Battery power: + charging, - discharging."""
         self._roll_day(now)
         spot = prices["now_eur_mwh"] if prices and prices.get("available") else FALLBACK_SPOT_EUR_MWH
+        for row in snapshot_sites:
+            power = row["power_w"]
+            self.solar_share[row["code"]] = min(1.0, (row.get("solar_w") or 0.0) / power) if power > 0 else 0.0
         tariffs = self.tariffs(prices)
         for row in snapshot_sites:
             code = row["code"]
             power_kw = row["power_w"] / 1000
-            solar_kw = min(power_kw, (row.get("solar_w") or 0.0) / 1000)
-            grid_kw = power_kw - solar_kw
+            battery_kw = ((row.get("battery") or {}).get("power_w") or 0.0) / 1000
+            solar_kw = min(power_kw + max(0.0, battery_kw), (row.get("solar_w") or 0.0) / 1000)
+            grid_kw = max(0.0, power_kw + battery_kw - solar_kw)
             buy = spot / 1000 + GRID_FEES_EUR_KWH
             rev_h, cost_h = power_kw * tariffs[code], grid_kw * buy
             self.rates[code] = {"revenue_eur_h": round(rev_h, 2), "cost_eur_h": round(cost_h, 2),

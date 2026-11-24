@@ -121,3 +121,15 @@ async def test_session_info_gives_expected_finish_and_preparing_sessions_are_ado
     info = eng.session_info(stations)["S-1#1"]
     assert info["adopted"] and info["delivered_kwh"] == 2.0
     assert abs(info["eta_s"] - (info["need_kwh"] * 1000 - 2000) / 10_000 * 3600) < 20  # need_kwh is rounded
+
+
+async def test_public_drivers_who_see_a_long_wait_in_the_app_go_elsewhere():
+    eng, t, lost = engine()
+    Car = __import__("control.demand", fromlist=["Car"]).Car
+    for i in range(40):
+        eng.state["S"].queue.append(Car(i, "S", 5000, 0, 99999, "TAG"))
+    for _ in range(40):
+        t[0] += 30
+        await eng.tick(snap([("S-1", 1, "Charging", 5, 0)]), {"S": 1.0}, {"S": 1.0})
+    st = eng.status()["S"]
+    assert st["expected_wait_s"] > 3600 and st["diverted"] > 0 and lost

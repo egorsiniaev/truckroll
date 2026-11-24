@@ -98,6 +98,13 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
     async def metrics():
         return metrics_text(hub.snapshot)
 
+    @app.post("/api/batteries")
+    async def batteries(body: ToggleRequest):
+        hub.batteries.enabled = body.value
+        hub.add_event("info", "site batteries on" if body.value else "site batteries off", kind="operator")
+        await hub.poll_once()
+        return {"ok": True, "result": {"enabled": hub.batteries.enabled}}
+
     @app.post("/api/pricing")
     async def pricing(body: ToggleRequest):
         hub.economics.dynamic = body.value
