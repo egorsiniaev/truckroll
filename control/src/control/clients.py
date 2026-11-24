@@ -116,14 +116,11 @@ class SimulatorClient:
             station_id, "statusNotification", {"connectorId": connector_id, "status": status, "errorCode": error_code}
         )
 
-    async def set_atg_many(self, station_ids: list[str], running: bool) -> dict:
-        """Start or stop the simulator's arrival generator on many stations in one call."""
-        hash_ids = [await self.hash_id(sid) for sid in station_ids]
-        procedure = "startAutomaticTransactionGenerator" if running else "stopAutomaticTransactionGenerator"
-        res = await self._call(procedure, {"hashIds": hash_ids})
-        if res.get("status") != "success":
-            raise UpstreamError(f"simulator {procedure} failed: {res}")
-        return res
+    async def start_transaction(self, station_id: str, connector_id: int, id_tag: str) -> dict:
+        return await self._station_call(station_id, "startTransaction", {"connectorId": connector_id, "idTag": id_tag})
+
+    async def stop_transaction(self, station_id: str, transaction_id: int) -> dict:
+        return await self._station_call(station_id, "stopTransaction", {"transactionId": transaction_id})
 
     async def set_running(self, station_id: str, running: bool) -> dict:
         return await self._station_call(station_id, "startChargingStation" if running else "stopChargingStation")

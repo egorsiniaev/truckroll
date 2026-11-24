@@ -1,9 +1,8 @@
-"""Real-world mode: local time and live weather drive arrivals, derates and network trouble."""
+"""Real-world mode: local time sets demand; live weather and prices set derates and network trouble."""
 
 from __future__ import annotations
 
 import logging
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +15,7 @@ COLD_C = 3.0
 COLD_DERATE = 0.75
 STORM_GUST_KMH = 60.0
 STORM_LATENCY_MS = 1500
+FLAT_SHARE = 0.6
 PRICE_DERATE = 0.5  # flexible depot fleet charges at half power in the day's most expensive slots
 
 # Share of stations with arrivals, by local hour range [start, end).
@@ -32,12 +32,6 @@ def demand_share(profile: str, hour: int) -> float:
         if start <= hour < end:
             return share
     return 1.0
-
-
-def active_stations(station_ids: list[str], share: float) -> set[str]:
-    """Deterministic pick so the same stations stay busy between ticks."""
-    ordered = sorted(station_ids)
-    return set(ordered[: math.ceil(share * len(ordered))])
 
 
 def solar_w(site: Mapping, weather: Mapping | None) -> float:
@@ -97,9 +91,14 @@ class WorldEngine:
         self.enabled = enabled
         self.rules: list[Rule] = []
         self.targets: dict[str, float] = {}
-        self._atg_off: set[str] = set()
         self._stormy: set[str] = set()
-        self._busy_counts: dict[str, int] = {}
+
+    def shares(self) -> dict[str, float]:
+        """Demand share per site for the demand engine: the local day when on, a flat 60 % when off."""
+        if not self.enabled:
+            return {s["code"]: FLAT_SHARE for s in self.sites}
+        hour = local_hour()
+        return {s["code"]: demand_share(s.get("demand", ""), hour) for s in self.sites}
 
     def status(self) -> dict:
         return {
@@ -122,10 +121,7 @@ class WorldEngine:
             by_site.setdefault(st["site"], []).append(st)
         for site in self.sites:
             stations = by_site.get(site["code"], [])
-            ids = [s["id"] for s in stations if s.get("connected")]
-            share = demand_share(site.get("demand", ""), hour)
-            self.targets[site["code"]] = share
-            changes += await self._apply_demand(site["code"], ids, active_stations(ids, share))
+            self.targets[site["code"]] = demand_share(site.get("demand", ""), hour)
             rules = {r.rule: r for r in self.rules if r.site == site["code"]}
             if "cold_derate" in rules:
                 changes += await self._apply_derate(site, stations, "cold", rules["cold_derate"].active, COLD_DERATE,
@@ -135,20 +131,6 @@ class WorldEngine:
                                                     "expensive power")
             changes += await self._apply_storm(site, rules["storm_network"].active)
         return changes
-
-    async def _apply_demand(self, code: str, ids: list[str], busy: set[str]) -> list[str]:
-        # Re-apply the whole target every tick: idempotent, and it survives a simulator restart.
-        idle = [i for i in ids if i not in busy]
-        if idle:
-            await self.clients.simulator.set_atg_many(idle, False)
-        if busy:
-            await self.clients.simulator.set_atg_many(sorted(busy), True)
-        self._atg_off = (self._atg_off - busy) | set(idle)
-        count = len(busy)
-        if self._busy_counts.get(code) != count:
-            self._busy_counts[code] = count
-            return [f"{code}: arrivals at {count}/{len(ids)} stations for this hour"]
-        return []
 
     async def _apply_derate(self, site: Mapping, stations: list[dict], source: str, active: bool, factor: float,
                             reason: str) -> list[str]:
@@ -179,10 +161,6 @@ class WorldEngine:
     async def disable(self) -> None:
         """Undo everything the engine set, so manual control starts from a clean fleet."""
         self.enabled = False
-        if self._atg_off:
-            await self.clients.simulator.set_atg_many(sorted(self._atg_off), True)
-            self._atg_off.clear()
-        self._busy_counts.clear()
         await self.arbiter.clear_source("cold")
         await self.arbiter.clear_source("price")
         for code in sorted(self._stormy):

@@ -1,8 +1,7 @@
 import pytest
 
 from control.limits import LimitArbiter
-from control.world import (COLD_DERATE, STORM_LATENCY_MS, WorldEngine, active_stations, demand_share, solar_w,
-                           weather_rules)
+from control.world import COLD_DERATE, FLAT_SHARE, STORM_LATENCY_MS, WorldEngine, demand_share, solar_w, weather_rules
 
 HUB = {"code": "A2-HUB", "current": "DC", "power_w": 150000, "proxy": "a2-hub", "pv_w": 80000, "demand": "highway"}
 DEPOT = {"code": "AMS-DEPOT", "current": "AC", "power_w": 22080, "proxy": "ams-depot", "pv_w": 150000, "demand": "depot"}
@@ -13,12 +12,6 @@ def test_demand_profiles_follow_the_local_day():
     assert demand_share("office", 8) == 0.8
     assert demand_share("depot", 23) == 0.9
     assert demand_share("unknown", 12) == 1.0
-
-
-def test_active_stations_is_stable_and_rounds_up():
-    ids = ["S-3", "S-1", "S-2"]
-    assert active_stations(ids, 0.5) == {"S-1", "S-2"}
-    assert active_stations(ids, 0.0) == set()
 
 
 def test_solar_scales_with_irradiance():
@@ -85,19 +78,13 @@ async def test_enabled_engine_derates_cold_dc_and_degrades_stormy_network_then_u
     assert ("limit", "A2-HUB-1", None) in calls and ("latency", "a2-hub", 0) in calls
 
 
-async def test_demand_turns_arrivals_off_outside_busy_hours(monkeypatch):
-    monkeypatch.setattr("control.world.local_hour", lambda now=None: 3)  # office profile 0.0
+def test_shares_follow_the_day_only_in_real_world_mode(monkeypatch):
+    monkeypatch.setattr("control.world.local_hour", lambda now=None: 3)
     office = {**DEPOT, "code": "EHV-OFFICE", "demand": "office"}
-    clients = Clients()
-    eng = engine([office], clients)
+    eng = engine([office], Clients())
+    assert eng.shares() == {"EHV-OFFICE": FLAT_SHARE}
     eng.enabled = True
-    changes = await eng.tick(snap("EHV-OFFICE", 3), {})
-    assert clients.simulator.calls[0] == ("atg", ("EHV-OFFICE-1", "EHV-OFFICE-2", "EHV-OFFICE-3"), False)
-    assert changes == ["EHV-OFFICE: arrivals at 0/3 stations for this hour"]
-    assert await eng.tick(snap("EHV-OFFICE", 3), {}) == []  # same target again: re-applied silently
-    clients.simulator.calls.clear()
-    await eng.disable()
-    assert clients.simulator.calls[0][2] is True
+    assert eng.shares() == {"EHV-OFFICE": 0.0}
 
 
 def test_price_rule_only_for_depot_and_when_expensive():

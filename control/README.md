@@ -16,9 +16,22 @@ Open-Meteo weather every 10 min, and streams one snapshot to every page over SSE
 | `POST /api/stations/{id}/power` `{on}`, `/reset` | Switch the simulated station off/on; OCPP soft reset |
 | `POST /api/world` `{enabled}` | Real-world mode (on by default): local time sets arrivals, weather and prices set limits |
 | `POST /api/autopilot` `{enabled}` | Random scenarios every 5-10 min (on by default) |
+| `POST /api/pricing` `{enabled}` | Dynamic pricing: public tariffs follow price spikes (on by default) |
+| `GET /metrics` | Prometheus: load, queues, tariffs, money, incidents (scraped for Grafana) |
 | `POST /api/scenarios/{id}/start`, `/api/scenarios/stop` | Scripted incidents; one at a time; stop cleans up |
 
 API docs: http://localhost:8080/api/docs.
+
+## Demand and money
+
+- **Demand engine** (`demand.py`): cars arrive per site (Poisson; rate = profile x hour of day x tariff effect), each
+  needs a set amount of energy, takes a free connector or waits, and leaves when charged. Drivers give up after their
+  patience runs out. A grid cap slows charging, sessions last longer, and the queue grows. The simulator's own
+  session generator is off; the engine starts and stops transactions through the simulator API.
+- **Economics** (`economics.py`): energy bought at the ENTSO-E spot price plus €0.11/kWh fees, solar free, sold at
+  each site's tariff (depot €0.32 fleet contract, office €0.39, retail €0.49, highway €0.69). With dynamic pricing,
+  60 % of a price spike reaches public tariffs (capped at +60 %), and price-sensitive drivers go elsewhere
+  (elasticity 1.2 retail, 1.5 highway). Revenue, cost, margin and revenue lost to waits reset at local midnight.
 
 ## Automatic parts
 

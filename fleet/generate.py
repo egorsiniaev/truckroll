@@ -83,8 +83,9 @@ def template(site: Site, index: int) -> dict:
                 {"key": "WebSocketPingInterval", "readonly": False, "value": "60"},
             ]
         },
+        # Sessions come from the control service's demand engine (arrivals, queue, energy need), not the simulator.
         "AutomaticTransactionGenerator": {
-            "enable": True,
+            "enable": False,
             "minDuration": site.session_s[0],
             "maxDuration": site.session_s[1],
             "minDelayBetweenTwoTransactions": site.gap_s[0],

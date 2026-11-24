@@ -56,8 +56,11 @@ class FakeSim:
     async def set_running(self, sid, running):
         self.calls.append(("running", sid, running))
 
-    async def set_atg_many(self, ids, running):
-        self.calls.append(("atg", tuple(ids), running))
+    async def start_transaction(self, sid, cid, tag):
+        pass  # demand engine traffic; not what these tests check
+
+    async def stop_transaction(self, sid, tx):
+        pass
 
 
 @pytest.fixture
@@ -175,3 +178,11 @@ async def test_autopilot_toggle(ctx):
     client, _, hub = ctx
     res = await client.post("/api/autopilot", json={"enabled": True})
     assert res.json()["result"]["enabled"] is True
+
+
+async def test_metrics_endpoint_and_pricing_toggle(ctx):
+    client, _, hub = ctx
+    res = await client.get("/metrics")
+    assert res.status_code == 200 and "truckroll_site_power_watts" in res.text
+    await client.post("/api/pricing", json={"enabled": False})
+    assert hub.economics.dynamic is False

@@ -42,7 +42,7 @@
     ]
   },
   "AutomaticTransactionGenerator": {
-    "enable": true,
+    "enable": false,
     "minDuration": 1800,
     "maxDuration": 3600,
     "minDelayBetweenTwoTransactions": 300,

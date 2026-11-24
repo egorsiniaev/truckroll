@@ -1,0 +1,43 @@
+from datetime import UTC, datetime
+
+import pytest
+
+from control.economics import GRID_FEES_EUR_KWH, Economics, demand_factor, tariff
+
+HUB = {"code": "A2-HUB", "demand": "highway"}
+DEPOT = {"code": "AMS-DEPOT", "demand": "depot"}
+SPIKE = {"available": True, "now_eur_mwh": 300.0, "avg_eur_mwh": 150.0}
+CALM = {"available": True, "now_eur_mwh": 120.0, "avg_eur_mwh": 150.0}
+
+
+def test_dynamic_pricing_passes_spikes_to_public_sites_only():
+    assert tariff(HUB, SPIKE, dynamic=True) == pytest.approx(0.69 * 1.6)  # capped
+    assert tariff(HUB, CALM, dynamic=True) == 0.69
+    assert tariff(HUB, SPIKE, dynamic=False) == 0.69
+    assert tariff(DEPOT, SPIKE, dynamic=True) == 0.32  # fleet contract stays fixed
+
+
+def test_dearer_public_charger_loses_drivers_fleet_barely():
+    assert demand_factor(HUB, 0.69) == 1.0
+    assert demand_factor(HUB, 0.69 * 1.6) < 0.55
+    assert demand_factor(DEPOT, 0.32 * 1.6) > 0.9
+
+
+def test_accrue_uses_solar_first_then_grid_at_spot_plus_fees():
+    econ = Economics([HUB], dynamic=False)
+    now = datetime(2026, 11, 24, 12, tzinfo=UTC)
+    econ.accrue([{"code": "A2-HUB", "power_w": 100_000, "solar_w": 20_000}], CALM, 3600, now)
+    led = econ.summary()["sites"]["A2-HUB"]
+    assert led["energy_kwh"] == 100 and led["solar_kwh"] == 20 and led["grid_kwh"] == 80
+    assert led["revenue_eur"] == pytest.approx(69.0)
+    assert led["cost_eur"] == pytest.approx(80 * (0.12 + GRID_FEES_EUR_KWH))
+    assert led["margin_eur_h"] == pytest.approx(69.0 - 80 * (0.12 + GRID_FEES_EUR_KWH), abs=0.01)
+
+
+def test_ledger_rolls_over_at_local_midnight_and_counts_lost_revenue():
+    econ = Economics([HUB])
+    econ.accrue([{"code": "A2-HUB", "power_w": 50_000}], None, 3600, datetime(2026, 11, 24, 22, tzinfo=UTC))
+    econ.lost("A2-HUB", 10, None)
+    assert econ.summary()["fleet"]["lost_eur"] == pytest.approx(6.9)
+    econ.accrue([{"code": "A2-HUB", "power_w": 0}], None, 1, datetime(2026, 11, 24, 23, 30, tzinfo=UTC))  # 00:30 local
+    assert econ.summary()["fleet"]["energy_kwh"] == 0

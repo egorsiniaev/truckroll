@@ -11,12 +11,13 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from control.clients import UpstreamError
 from control.hub import Clients, Hub  # noqa: F401 - re-exported for main and tests
+from control.metrics import metrics_text
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +93,18 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
     @app.get("/api/state")
     async def state():
         return hub.snapshot
+
+    @app.get("/metrics", response_class=PlainTextResponse)
+    async def metrics():
+        return metrics_text(hub.snapshot)
+
+    @app.post("/api/pricing")
+    async def pricing(body: ToggleRequest):
+        hub.economics.dynamic = body.value
+        hub.add_event("info", "dynamic pricing on: price spikes reach public tariffs" if body.value
+                      else "dynamic pricing off: fixed tariffs", kind="operator")
+        await hub.poll_once()
+        return {"ok": True, "result": {"dynamic": hub.economics.dynamic}}
 
     @app.get("/api/meta")
     async def meta():

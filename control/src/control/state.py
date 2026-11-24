@@ -40,8 +40,11 @@ def site_summary(site: Mapping, stations: list[Mapping], proxy: Mapping | None, 
     for s in stations:
         state = station_state(s)
         counts[state] = counts.get(state, 0) + 1
+    free = sum(1 for st, c in connectors if st.get("connected") and c["status"] == "Available")
     return {
         **site,
+        "free": free,
+        "connectors_total": total,
         "power_w": round(power, 1),
         "cap_used": round(power / site["cap_w"], 4) if site.get("cap_w") else None,
         "availability": round(usable / total, 4) if total else None,
@@ -78,6 +81,7 @@ def build_snapshot(
             "stations_online": sum(1 for s in enriched if s.get("connected")),
             "connectors_total": total_connectors,
             "charging": sum(1 for _, c in connectors if c["status"] in ACTIVE),
+            "free": sum(1 for s, c in connectors if s.get("connected") and c["status"] == "Available"),
             "faulted": sum(1 for _, c in connectors if c["status"] == "Faulted"),
             "availability": round(sum(_usable(s, c) for s, c in connectors) / total_connectors, 4)
             if total_connectors else None,

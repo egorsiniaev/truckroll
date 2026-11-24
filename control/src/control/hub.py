@@ -14,6 +14,8 @@ from control.autopilot import Autopilot
 from control.clients import CsmsClient, SimulatorClient, ToxiproxyClient, UpstreamError, WeatherClient
 from control.controller import SiteController
 from control.daylight import daylight
+from control.demand import DemandEngine
+from control.economics import Economics, demand_factor
 from control.incidents import IncidentManager
 from control.limits import SOURCE_LABELS, LimitArbiter
 from control.prices import PriceClient, PriceError, summarize
@@ -25,6 +27,7 @@ log = logging.getLogger(__name__)
 
 POLL_S = 2.0
 CONTROLLER_EVERY_S = 10
+DEMAND_EVERY_S = 5
 WORLD_EVERY_S = 60
 WEATHER_EVERY_S = 600
 PRICES_EVERY_S = 3600
@@ -53,6 +56,8 @@ class Hub:
     world_default: bool = False
     autopilot_default: bool = False
     grafana_url: str | None = None
+    dynamic_pricing_default: bool = True
+    id_tags: list = field(default_factory=lambda: [f"TR-{n:04d}" for n in range(1, 101)])
     snapshot: dict = field(default_factory=dict)
     events: deque = field(default_factory=lambda: deque(maxlen=MAX_EVENTS))
     weather: dict = field(default_factory=dict)
@@ -62,6 +67,7 @@ class Hub:
     _slots: list = field(default_factory=list)
     _due: dict = field(default_factory=dict)
     _reconciled: bool = False
+    _last_poll: float = 0.0
 
     def __post_init__(self) -> None:
         self.limits = LimitArbiter(self.clients.csms)
@@ -71,6 +77,9 @@ class Hub:
         self.controller = SiteController(self.sites, self.limits)
         self.incidents = IncidentManager(self.sites, self.clients)
         self.autopilot = Autopilot(self.runner, enabled=self.autopilot_default)
+        self.economics = Economics(self.sites, dynamic=self.dynamic_pricing_default)
+        self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
+                                   on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices))
 
     # ---- feed --------------------------------------------------------------
     def add_event(self, level: str, text: str, site: str | None = None, station: str | None = None,
@@ -142,8 +151,18 @@ class Hub:
             errors["prices"] = self.prices_error
 
         snap = build_snapshot(self.sites, stations, proxies, self.weather, errors, _now_iso())
+        now_mono = time.monotonic()
+        dt = now_mono - self._last_poll if self._last_poll else 0.0
+        self._last_poll = now_mono
         for site in snap["sites"]:
             site["solar_w"] = solar_w(site, site.get("weather"))
+        if stations and dt:
+            self.economics.accrue(snap["sites"], self.prices, min(dt, 30.0), datetime.now(UTC))
+        money = self.economics.summary()
+        demand = self.demand.status()
+        for site in snap["sites"]:
+            site["economics"] = money["sites"].get(site["code"], {})
+            site["demand"] = demand.get(site["code"], {})
             site["rules"] = [r.__dict__ for r in self.world.rules if r.site == site["code"]]
             site["controller"] = self.controller.status().get(site["code"])
         for st in snap["stations"]:
@@ -155,6 +174,7 @@ class Hub:
         if stations:
             await self._automatic(snap)
 
+        snap["kpis"]["queue"] = sum(d["queue"] for d in demand.values())
         sun = next(iter(self.weather.values()), {}) if self.weather else {}
         self.snapshot = {
             **snap,
@@ -166,6 +186,7 @@ class Hub:
             "prices": self.prices,
             "daylight": daylight(datetime.now(UTC), sun.get("sunrise"), sun.get("sunset")),
             "grafana_url": self.grafana_url,
+            "economics": money,
         }
 
     async def _automatic(self, snap: dict) -> None:
@@ -185,6 +206,11 @@ class Hub:
                 for ev in await self.controller.tick(snap):
                     self.incidents.grid_cap(ev)
             self._flex_requests()
+            if self._due_now("demand", DEMAND_EVERY_S):
+                tariffs = self.economics.tariffs(self.prices)
+                factors = {s["code"]: demand_factor(s, tariffs[s["code"]]) for s in self.sites}
+                for text in await self.demand.tick(snap, self.world.shares(), factors):
+                    self.add_event("info", text, kind="demand")
             if self._due_now("world", WORLD_EVERY_S):
                 await self.tick_world(snap)
             started = self.autopilot.tick(snap["stations"])
