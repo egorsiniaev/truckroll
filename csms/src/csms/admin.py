@@ -14,6 +14,7 @@ from ocpp.v16 import call
 from ocpp.v16.enums import ChargingProfileKindType, ChargingProfilePurposeType, ChargingRateUnitType
 from pydantic import BaseModel, Field
 
+from csms.chaos import Chaos
 from csms.fleet import FleetStore, Station
 from csms.registry import Registry
 
@@ -29,6 +30,19 @@ class LimitRequest(BaseModel):
 
 class ResetRequest(BaseModel):
     type: Literal["Soft", "Hard"] = "Soft"
+
+
+class ChaosRequest(BaseModel):
+    auth_delay_s: float | None = Field(default=None, ge=0, le=120)
+    response_delay_s: float | None = Field(default=None, ge=0, le=120)
+    meter_factor: dict[str, float] | None = None  # replaces the map; {} clears
+    drop_profiles: list[str] | None = None  # replaces the set; [] clears
+    free_vend: bool | None = None
+
+
+class AvailabilityRequest(BaseModel):
+    type: Literal["Operative", "Inoperative"]
+    connector_id: int = 0
 
 
 class TriggerRequest(BaseModel):
@@ -72,8 +86,10 @@ def _limit_profile(watts: float) -> dict:
     }
 
 
-def create_admin_app(fleet: FleetStore, registry: Registry, clock: Callable[[], float] = time.time) -> FastAPI:
+def create_admin_app(fleet: FleetStore, registry: Registry, clock: Callable[[], float] = time.time,
+                     chaos: Chaos | None = None) -> FastAPI:
     app = FastAPI(title="csms-admin", docs_url=None, redoc_url=None)
+    chaos = chaos or Chaos()
 
     def connection_for(station_id: str):
         if fleet.get(station_id) is None:
@@ -98,9 +114,44 @@ def create_admin_app(fleet: FleetStore, registry: Registry, clock: Callable[[], 
         now = clock()
         return {"stations": [station_json(s, now) for s in sorted(fleet.snapshot(), key=lambda s: s.station_id)]}
 
+    @app.get("/stats")
+    async def stats():
+        return {**chaos.stats.to_json(), "free_vend": chaos.free_vend}
+
+    @app.get("/chaos")
+    async def get_chaos():
+        return chaos.to_json()
+
+    @app.post("/chaos")
+    async def set_chaos(body: ChaosRequest):
+        if body.auth_delay_s is not None:
+            chaos.auth_delay_s = body.auth_delay_s
+        if body.response_delay_s is not None:
+            chaos.response_delay_s = body.response_delay_s
+        if body.meter_factor is not None:
+            chaos.meter_factor = dict(body.meter_factor)
+        if body.drop_profiles is not None:
+            chaos.drop_profiles = set(body.drop_profiles)
+        if body.free_vend is not None:
+            chaos.free_vend = body.free_vend
+        log.warning("chaos set: %s", chaos.to_json())
+        return chaos.to_json()
+
+    @app.post("/stations/{station_id}/availability")
+    async def availability(station_id: str, body: AvailabilityRequest):
+        payload = call.ChangeAvailability(connector_id=body.connector_id, type=body.type)
+        res = await send(connection_for(station_id), payload, "availability")
+        log.info("station=%s availability=%s result=%s", station_id, body.type, res.status)
+        return {"station": station_id, "status": res.status}
+
     @app.post("/stations/{station_id}/limit")
     async def set_limit(station_id: str, body: LimitRequest):
         conn = connection_for(station_id)
+        if station_id in chaos.drop_profiles:
+            # Injected fault: the charger "accepts" the limit but never applies it.
+            fleet.set_limit(station_id, body.watts)
+            log.warning("station=%s limit=%s dropped by chaos", station_id, body.watts)
+            return {"station": station_id, "limit_w": body.watts, "status": "Accepted"}
         if body.watts is None:
             res = await send(conn, call.ClearChargingProfile(id=LIMIT_PROFILE_ID), "clear limit")
             accepted = res.status == "Accepted" or res.status == "Unknown"

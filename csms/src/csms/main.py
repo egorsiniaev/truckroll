@@ -22,6 +22,7 @@ import uvicorn
 
 from csms.admin import create_admin_app
 from csms.auth import load_tag_list
+from csms.chaos import Chaos
 from csms.fleet import FleetStore
 from csms.registry import Registry
 from csms.server import serve
@@ -72,13 +73,14 @@ async def _run() -> None:
     host = os.environ.get("CSMS_HOST", "0.0.0.0")
     port = _env_int("CSMS_PORT", 9000)
     registry = Registry()
+    chaos = Chaos()
     server = await serve(
-        host, port, fleet, telemetry, auth, _env_int("CSMS_HEARTBEAT_INTERVAL_S", 30), registry=registry
+        host, port, fleet, telemetry, auth, _env_int("CSMS_HEARTBEAT_INTERVAL_S", 30), registry=registry, chaos=chaos
     )
     log.info("listening on ws://%s:%d/<station_id>", host, port)
     admin_port = _env_int("CSMS_ADMIN_PORT", 9001)
     admin = uvicorn.Server(
-        uvicorn.Config(create_admin_app(fleet, registry), host=host, port=admin_port, log_level="warning")
+        uvicorn.Config(create_admin_app(fleet, registry, chaos=chaos), host=host, port=admin_port, log_level="warning")
     )
     admin.install_signal_handlers = lambda: None  # signals are handled below
     admin_task = asyncio.create_task(admin.serve())

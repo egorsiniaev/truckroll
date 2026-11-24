@@ -13,6 +13,7 @@ from ocpp.v16 import ChargePoint, call_result
 from ocpp.v16.enums import Action, AuthorizationStatus, RegistrationStatus
 
 from csms.auth import TagList
+from csms.chaos import Chaos
 from csms.fleet import FleetStore, site_of
 from csms.telemetry import Telemetry
 
@@ -54,8 +55,10 @@ class StationConnection(ChargePoint):
         auth: TagList,
         heartbeat_interval_s: int,
         clock: Callable[[], float] = time.time,
+        chaos: Chaos | None = None,
     ) -> None:
         super().__init__(station_id, connection)
+        self._chaos = chaos or Chaos()
         self._fleet = fleet
         self._telemetry = telemetry
         self._auth = auth
@@ -71,6 +74,7 @@ class StationConnection(ChargePoint):
         except (json.JSONDecodeError, TypeError):
             log.warning("station=%s sent unparseable frame", self.id)
         self._fleet.seen(self.id, self._clock())
+        await self._chaos.delay_reply()
         return await super().route_message(raw_msg)
 
     @on(Action.boot_notification)
@@ -92,10 +96,12 @@ class StationConnection(ChargePoint):
 
     @on(Action.authorize)
     async def on_authorize(self, id_tag):
+        await self._chaos.delay_auth()
         return call_result.Authorize(id_tag_info={"status": self._tag_status(id_tag)})
 
     @on(Action.start_transaction)
     async def on_start_transaction(self, connector_id, id_tag, meter_start, timestamp, **kwargs):
+        await self._chaos.delay_auth()
         status = self._tag_status(id_tag)
         if status != AuthorizationStatus.accepted:
             self._telemetry.session_rejected(self.site, status.value)
@@ -138,8 +144,16 @@ class StationConnection(ChargePoint):
             log.warning("station=%s site=%s connector=%s adopted tx=%s started before a CSMS restart",
                         self.id, self.site, connector_id, tx)
         power_w, energy_wh = parse_meter_values(meter_value)
+        factor = self._chaos.meter_factor.get(self.id)
+        if factor and energy_wh is not None:
+            # A drifting meter: the register runs fast, relative to where the session started.
+            start = (self._fleet.get(self.id).connectors.get(connector_id) or None)
+            base = start.meter_start_wh if start and start.meter_start_wh is not None else 0.0
+            energy_wh = base + (energy_wh - base) * factor
         self._fleet.record_meter(self.id, connector_id, power_w, energy_wh, self._clock())
         return call_result.MeterValues()
 
     def _tag_status(self, id_tag: str) -> AuthorizationStatus:
-        return AuthorizationStatus.accepted if self._auth.is_valid(id_tag) else AuthorizationStatus.invalid
+        if self._chaos.free_vend or self._auth.is_valid(id_tag):
+            return AuthorizationStatus.accepted
+        return AuthorizationStatus.invalid

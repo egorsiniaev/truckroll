@@ -16,6 +16,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
 
 from csms.auth import TagList
+from csms.chaos import Chaos
 from csms.charge_point import StationConnection
 from csms.fleet import FleetStore
 from csms.registry import Registry
@@ -59,6 +60,7 @@ async def serve(
     heartbeat_interval_s: int,
     resync_delay_s: float = RESYNC_DELAY_S,
     registry: Registry | None = None,
+    chaos: Chaos | None = None,
 ) -> Server:
     registry = registry if registry is not None else Registry()
 
@@ -70,7 +72,7 @@ async def serve(
             return
         token = fleet.connect(station_id, time.time())
         log.info("station=%s connected remote=%s", station_id, connection.remote_address)
-        station = StationConnection(station_id, connection, fleet, telemetry, auth, heartbeat_interval_s)
+        station = StationConnection(station_id, connection, fleet, telemetry, auth, heartbeat_interval_s, chaos=chaos)
         registry.add(station_id, token, station)
         resync = asyncio.create_task(resync_if_unknown(station, fleet, resync_delay_s))
         try:
