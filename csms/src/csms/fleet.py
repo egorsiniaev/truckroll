@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import threading
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
@@ -50,7 +51,8 @@ class FleetStore:
         self._transactions: Mapping[int, tuple[str, int]] = MappingProxyType({})
         self._tokens: dict[str, int] = {}
         self._token_seq = itertools.count(1)
-        self._tx_seq = itertools.count(1)
+        # Start transaction ids from the clock, so ids from before a restart never collide with new ones.
+        self._tx_seq = itertools.count(int(time.time()))
 
     def get(self, station_id: str) -> Station | None:
         return self._stations.get(station_id)
@@ -112,6 +114,20 @@ class FleetStore:
                                       meter_start_wh=None)
             self._put(replace(station, last_seen=now))
             return station_id
+
+    def knows_transaction(self, tx_id: int) -> bool:
+        return tx_id in self._transactions
+
+    def adopt_transaction(self, station_id: str, connector_id: int, tx_id: int, now: float) -> bool:
+        """Take over a transaction started before a CSMS restart (seen in MeterValues). Energy per session is
+        unknown for it. Returns False if the id is already known."""
+        with self._lock:
+            if tx_id in self._transactions:
+                return False
+            self._transactions = MappingProxyType({**self._transactions, tx_id: (station_id, connector_id)})
+            station = _with_connector(self._existing(station_id), connector_id, transaction_id=tx_id, meter_start_wh=None)
+            self._put(replace(station, last_seen=now))
+            return True
 
     def close_stale(self, station_id: str, connector_id: int | None = None) -> list[int]:
         """Close transactions the station can no longer have: all of them after a reboot (connector None), or one

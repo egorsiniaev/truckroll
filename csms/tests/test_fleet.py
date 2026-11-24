@@ -83,3 +83,13 @@ def test_close_stale_after_reboot_and_on_available():
     assert fleet.close_stale("S-1") == [a]
     assert fleet.stop_transaction(a, now=2.0) is None
     assert fleet.close_stale("S-1") == []
+
+
+def test_adopt_transaction_from_before_a_restart_and_ids_do_not_collide():
+    fleet = FleetStore()
+    fleet.connect("S-1", now=0.0)
+    assert fleet.adopt_transaction("S-1", connector_id=1, tx_id=461, now=1.0) is True
+    assert fleet.adopt_transaction("S-1", connector_id=1, tx_id=461, now=1.0) is False
+    assert fleet.get("S-1").connectors[1].transaction_id == 461
+    assert fleet.stop_transaction(461, now=2.0) == "S-1"
+    assert fleet.start_transaction("S-1", connector_id=1, now=3.0) > 1_000_000_000

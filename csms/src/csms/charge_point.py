@@ -133,6 +133,10 @@ class StationConnection(ChargePoint):
 
     @on(Action.meter_values)
     async def on_meter_values(self, connector_id, meter_value, **kwargs):
+        tx = kwargs.get("transaction_id")
+        if tx and connector_id and self._fleet.adopt_transaction(self.id, connector_id, int(tx), self._clock()):
+            log.warning("station=%s site=%s connector=%s adopted tx=%s started before a CSMS restart",
+                        self.id, self.site, connector_id, tx)
         power_w, energy_wh = parse_meter_values(meter_value)
         self._fleet.record_meter(self.id, connector_id, power_w, energy_wh, self._clock())
         return call_result.MeterValues()

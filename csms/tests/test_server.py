@@ -196,3 +196,12 @@ async def test_reboot_and_available_close_stale_transactions(server, fleet):
         await cp.call(call.BootNotification(charge_point_model="AC22", charge_point_vendor="Truckroll"))
         assert fleet.get(STATION).connectors[1].transaction_id is None
     assert started.transaction_id
+
+
+async def test_meter_values_with_unknown_transaction_adopt_it(server, fleet):
+    async with station(server) as cp:
+        await cp.call(call.MeterValues(connector_id=1, transaction_id=461, meter_value=[
+            {"timestamp": "2026-11-24T10:01:00Z", "sampled_value": [{"value": "100", "unit": "Wh"}]}]))
+        assert fleet.get(STATION).connectors[1].transaction_id == 461
+        await cp.call(call.StopTransaction(meter_stop=200, timestamp="2026-11-24T10:05:00Z", transaction_id=461))
+        assert fleet.get(STATION).connectors[1].transaction_id is None
