@@ -16,6 +16,23 @@ services:
     depends_on: [otel-collector]
     restart: unless-stopped
 
+  control:
+    build: ./control
+    environment:
+      CSMS_ADMIN_URL: http://csms:9001
+      TOXIPROXY_URL: http://toxiproxy:8474
+      SIMULATOR_UI_URL: ws://simulator:8080
+      SITES_FILE: /config/sites.json
+      WEB_DIR: /web
+    volumes:
+      - ./fleet/sites.json:/config/sites.json:ro
+      - ./web:/web:ro
+    ports:
+      # Local only: the control API has no auth yet.
+      - "127.0.0.1:8080:8000"
+    depends_on: [csms, toxiproxy, simulator]
+    restart: unless-stopped
+
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.13.0
     command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
