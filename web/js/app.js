@@ -45,7 +45,7 @@ function switchTab(tab) {
 document.querySelectorAll(".tabs button").forEach((b) => { b.onclick = () => { switchTab(b.dataset.tab); render(); }; });
 
 // Pan and zoom: drag the map, wheel or buttons to zoom. A drag never counts as a click.
-const HOME = { x: -960, y: -520, w: 1760, h: 1000 };
+const HOME = { x: -800, y: -700, w: 1600, h: 1180 }; // room at the top for the incidents strip
 let vb = { ...HOME };
 const applyView = () => svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
 applyView();
@@ -142,7 +142,7 @@ function renderHeader() {
   const banner = document.getElementById("banner");
   const run = snapshot.scenario?.running;
   banner.hidden = !run;
-  if (run) banner.textContent = `Scenario: ${run.title} (${Math.round(run.elapsed_s)}/${run.duration_s}${NB}s)`;
+  if (run) banner.textContent = `${run.icon ?? ""} Scenario: ${run.title} (${Math.round(run.elapsed_s)}/${run.duration_s}${NB}s)`;
   if (snapshot.grafana_url) document.getElementById("grafana").href = snapshot.grafana_url;
 }
 

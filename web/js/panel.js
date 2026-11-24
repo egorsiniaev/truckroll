@@ -192,10 +192,10 @@ export function renderControls(root, snapshot, meta) {
       <span>today €${prices.min_eur_mwh.toFixed(0)} to €${prices.max_eur_mwh.toFixed(0)}, red band = top 20%</span></div></div>${sparkline(prices)}`
       : `<p class="hint">No price data${snapshot.upstream_errors?.prices ? `: ${esc(snapshot.upstream_errors.prices)}` : ""}.</p>`}
     <h4>Scenarios</h4>
-    ${run ? `<div class="running"><b>${esc(run.title)}</b> <span class="muted">${Math.round(run.elapsed_s)}/${run.duration_s}${NB}s</span>
+    ${run ? `<div class="running"><b>${esc(run.icon ?? "")} ${esc(run.title)}</b> <span class="muted">${Math.round(run.elapsed_s)}/${run.duration_s}${NB}s</span>
       <div class="bar"><i style="width:${progress.toFixed(0)}%"></i></div>
       <button class="mini danger" data-act="stop-scenario" style="margin-top:6px">Stop and&nbsp;clean up</button></div>` : ""}
-    ${(meta.scenarios || []).map((s) => `<div class="row" title="${esc(s.description)}"><div class="what"><b>${esc(s.title)}</b><span>${esc(s.description)}</span></div>
+    ${(meta.scenarios || []).map((s) => `<div class="row scen ${run?.id === s.id ? "is-running" : ""}" title="${esc(s.description)}"><span class="scen-icon" aria-hidden="true">${esc(s.icon ?? "⚠️")}</span><div class="what"><b>${esc(s.title)}</b><span>${esc(s.description)}</span></div>
       <button class="mini" data-scenario="${esc(s.id)}" ${run ? "disabled" : ""}>Start</button></div>`).join("")}
     <h4>Network per site</h4>
     <table class="chaos">${snapshot.sites.map((s) => `<tr><td><b>${esc(s.code)}</b></td>

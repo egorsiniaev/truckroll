@@ -34,8 +34,10 @@ export function buildScene(svg, sites, stations, onSelect) {
   const labelLayer = el("g", { class: "label-layer" });
   // Selection marker sits above everything, so cars and canopies never hide it.
   const selectRing = el("ellipse", { rx: 30, ry: 17, class: "select-ring top", visibility: "hidden" });
-  svg.append(gridLayer, siteLayer, selectRing, labelLayer);
+  const scenarioLayer = el("g", { class: "scenario-layer" });
+  svg.append(gridLayer, siteLayer, scenarioLayer, selectRing, labelLayer);
   refs.selectRing = selectRing;
+  refs.scenarioLayer = scenarioLayer;
   buildSubstation(gridLayer);
 
   sites.forEach((site, i) => {
@@ -127,17 +129,19 @@ function buildSite(siteLayer, labelLayer, gridLayer, site, stations, ox, oy, ind
     refs.stations[st.id] = stationRefs[st.id];
   });
 
-  // Waiting lane along the site's left edge: queued cars appear here.
+  // Waiting lane in front of the site: queued cars line up here.
+  g.append(el("polygon", { class: "lane", points: pts([[ox, oy + SIZE + 0.15, 0], [ox + SIZE, oy + SIZE + 0.15, 0],
+    [ox + SIZE, oy + SIZE + 1.75, 0], [ox, oy + SIZE + 1.75, 0]]) }));
   const queueCars = [];
   for (let q = 0; q < QUEUE_SLOTS; q++) {
-    const qy = oy + 5.2 + q * 1.4;
-    const car = buildCar(ox - 1.05, qy, carColor(q * 3 + index));
+    const qx = ox + 1.0 + q * 1.6;
+    const car = buildCar(qx, oy + SIZE + 0.3, carColor(q * 3 + index));
     car.light.remove();
     queueCars.push(car);
-    objects.push({ depth: ox + qy - 1, node: car.g });
+    objects.push({ depth: qx + oy + SIZE + 5, node: car.g });
   }
-  const [qx, qy] = iso(ox - 0.7, oy + 4.6, 1.2);
-  const queueText = el("text", { x: qx, y: qy, class: "queue-text", "text-anchor": "middle" }, [""]);
+  const [tx, ty] = iso(ox + 0.6, oy + SIZE + 2.4, 0);
+  const queueText = el("text", { x: tx + 4, y: ty + 14, class: "queue-text", "text-anchor": "start" }, [""]);
 
   objects.sort((a, b) => a.depth - b.depth).forEach((o) => g.append(o.node));
   g.append(queueText);
@@ -227,14 +231,16 @@ function buildLabel(layer, site, ox, oy, index) {
   const ay = py - 150;
   const g = el("g", { class: "label-card clickable", transform: `translate(${ax.toFixed(0)},${ay.toFixed(0)})` });
   g.addEventListener("click", () => refs.onSelect({ type: "site", id: site.code }));
-  const w = 210;
-  g.append(el("rect", { x: -w / 2, y: -48, width: w, height: 66, rx: 10 }));
+  const w = 272;
+  g.append(el("rect", { x: -w / 2, y: -48, width: w, height: 82, rx: 10 }));
   g.append(el("text", { x: -w / 2 + 12, y: -28, "font-weight": 600 }, [site.code]));
   const sub = el("text", { x: -w / 2 + 12, y: -12, class: "small" }, ["…"]);
   g.append(sub);
   g.append(el("rect", { x: -w / 2 + 12, y: -2, width: w - 24, height: 6, rx: 3, class: "barbg" }));
   const bar = el("rect", { x: -w / 2 + 12, y: -2, width: 0, height: 6, rx: 3, class: "barfg" });
   g.append(bar);
+  const demandLine = el("text", { x: -w / 2 + 12, y: 22, class: "small demand-line" }, [""]);
+  g.append(demandLine);
   const tag = el("g", { visibility: "hidden" });
   const tagRect = el("rect", { y: -42, height: 18, rx: 9, class: "badge-down" });
   const tagText = el("text", { y: -29, "text-anchor": "middle", fill: "#fff", "font-size": 10, "font-weight": 700 }, [""]);
@@ -247,7 +253,7 @@ function buildLabel(layer, site, ox, oy, index) {
   weather.append(wIcon, wText, wSub);
   g.append(weather);
   layer.append(g);
-  return { g, sub, bar, barWidth: w - 24, w, tag, tagRect, tagText, wIcon, wText, wSub };
+  return { g, sub, bar, barWidth: w - 24, w, tag, tagRect, tagText, wIcon, wText, wSub, demandLine };
 }
 
 function weatherIcon(w) {
@@ -287,6 +293,12 @@ export function updateScene(snapshot, selected) {
   const NB = " ";
   const sitesByCode = Object.fromEntries(snapshot.sites.map((s) => [s.code, s]));
   const open = (snapshot.incidents || []).filter((i) => i.status === "open");
+  const run = snapshot.scenario?.running;
+  const hit = new Set(run?.stations ?? []);
+  refs.scenarioLayer.replaceChildren(...[...hit].filter((id) => refs.stations[id]).map((id) => {
+    const [cx, cy] = refs.stations[id].pos;
+    return el("ellipse", { cx, cy, rx: 24, ry: 13, class: "scenario-ring" });
+  }));
   const alertStations = new Set(open.flatMap((i) => i.stations));
   for (const [code, r] of Object.entries(refs.sites)) {
     const s = sitesByCode[code];
@@ -297,9 +309,16 @@ export function updateScene(snapshot, selected) {
     r.label.bar.setAttribute("width", (r.label.barWidth * used).toFixed(1));
     r.label.bar.setAttribute("class", `barfg ${loadClass(s.cap_used)}`);
     r.queueCars.forEach((car, q) => car.g.classList.toggle("hidden", q >= queue));
-    r.queueText.textContent = queue > QUEUE_SLOTS ? `+${queue - QUEUE_SLOTS} waiting` : queue ? `${queue} waiting` : "";
+    const d = s.demand || {};
+    const tariff = s.economics?.tariff_eur_kwh;
+    const priceEffect = d.price_factor != null && d.price_factor < 0.95 ? ` −${Math.round((1 - d.price_factor) * 100)}%${NB}price` : "";
+    r.label.demandLine.textContent = `${d.reason ?? "–"} · ${Math.round(d.arrivals_per_hour ?? 0)} cars/h${priceEffect}${tariff != null ? ` · €${tariff.toFixed(2)}/kWh` : ""}`;
+    r.queueText.textContent = queue ? `${queue} waiting · ${d.reason ?? ""}` : "";
+    r.queueCars.forEach((car, q) => car.g.classList.toggle("more", q === QUEUE_SLOTS - 1 && queue > QUEUE_SLOTS));
     const siteOpen = open.filter((i) => i.site === code).length;
-    setTag(r.label, !s.network.enabled ? "OUTAGE" : siteOpen ? `${siteOpen} INCIDENT${siteOpen > 1 ? "S" : ""}` : "");
+    const inScenario = run?.sites?.includes(code);
+    r.g.classList.toggle("in-scenario", !!inScenario);
+    setTag(r.label, !s.network.enabled ? "OUTAGE" : siteOpen ? `${siteOpen} INCIDENT${siteOpen > 1 ? "S" : ""}` : inScenario ? "SCENARIO" : "");
     const w = s.weather;
     r.label.wIcon.replaceChildren(...weatherIcon(w));
     r.label.wText.textContent = w && w.temp_c != null ? `${Math.round(w.temp_c)}°C` : "";

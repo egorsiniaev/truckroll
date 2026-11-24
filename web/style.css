@@ -303,3 +303,39 @@ table.chaos select { padding: 3px 6px; font-size: 11px; }
 .neg { color: #b91c1c; } .pos { color: #15803d; }
 .select-ring.top { fill: #3b82f633; stroke: #3b82f6; stroke-width: 4; pointer-events: none; animation: pulse 1.4s infinite; filter: drop-shadow(0 0 6px #3b82f6); }
 .phase-night .select-ring.top { stroke: #93c5fd; fill: #93c5fd33; }
+
+/* Canopies are scenery: clicks go through to the chargers underneath. */
+.canopy { pointer-events: none; }
+
+/* Incidents strip: full width of the map, cards side by side */
+.feed { left: 16px; right: 16px; width: auto; max-height: 32%; }
+#incidents { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 8px; }
+#incidents > li.muted { grid-column: 1 / -1; }
+.feed li.inc { margin: 0; }
+
+/* Tabs with colour */
+.tabs button { background: #f8fafc; }
+.tabs button[data-tab="details"].active { background: #dbeafe; color: #1e40af; }
+.tabs button[data-tab="controls"].active { background: #fef3c7; color: #92400e; }
+.tabs button[data-tab="details"]:not(.active):hover { background: #eff6ff; }
+.tabs button[data-tab="controls"]:not(.active):hover { background: #fffbeb; }
+
+/* Scenario list */
+.row.scen { justify-content: flex-start; }
+.row.scen .what { flex: 1; }
+.scen-icon { font-size: 20px; width: 30px; text-align: center; flex: none; }
+.row.scen.is-running { background: #fff7ed; border-radius: 8px; }
+
+/* Waiting lane and demand line */
+.lane { fill: #cbd5e1; opacity: .45; }
+.phase-night .lane { fill: #334155; opacity: .8; }
+.label-card .demand-line { fill: #475569; }
+.queue-text { font-size: 12px; }
+
+/* Running scenario: affected sites and chargers in orange */
+.site.in-scenario .platform { stroke: #f97316; stroke-width: 4; stroke-dasharray: 10 6; animation: march 1.2s linear infinite; }
+.site.selected.in-scenario .platform { stroke: #2563eb; }
+.scenario-ring { fill: #f9731622; stroke: #f97316; stroke-width: 3; pointer-events: none; animation: pulse 1.2s infinite; }
+@keyframes march { to { stroke-dashoffset: -32; } }
+.queue-text { paint-order: stroke; stroke: #ffffffcc; stroke-width: 3px; }
+.phase-night .queue-text { stroke: #0f1b30cc; }
