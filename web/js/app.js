@@ -162,8 +162,8 @@ function renderHeader() {
 }
 
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const ACTOR = { system: "", "auto-rule": "auto rule", operator: "operator", scenario: "scenario" };
-const STEP = { detected: "What", response: "Response", update: "Update", recovered: "Recovered" };
+const ACTOR = { system: "", "auto-rule": "auto rule", operator: "operator", scenario: "scenario", agent: "AI agent" };
+const STEP = { detected: "What", response: "Response", update: "Update", recovered: "Recovered", triage: "Agent", decision: "Asks" };
 
 function questionHtml(d, compact = false) {
   const def = d.default === "approve" ? "yes" : "no";

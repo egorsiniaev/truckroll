@@ -223,6 +223,14 @@ function sparkline(prices) {
     <line class="now" x1="${x(idx).toFixed(1)}" x2="${x(idx).toFixed(1)}" y1="0" y2="${H}"></line></svg>`;
 }
 
+function agentRow(a) {
+  if (!a) return `<div class="row"><div class="what"><b>AI triage agent</b><span>off: no Gemini key configured</span></div></div>`;
+  const cost = a.free_tier ? `free tier (would be $${a.cost_usd_if_paid.toFixed(3)} paid)` : `$${a.cost_usd_if_paid.toFixed(3)} today`;
+  const state = a.paused_s ? `paused ${mins(a.paused_s)}: ${esc(a.last_error ?? "")}` : a.last_error ? esc(a.last_error) : `${esc(a.model)}`;
+  return `<div class="row"><div class="what"><b>AI triage agent</b><span>${a.calls_today}/${a.daily_cap} calls today · ${(a.tokens_in / 1000).toFixed(1)}k in, ${(a.tokens_out / 1000).toFixed(1)}k out · ${cost} · ${state}</span></div>
+    <button class="switch ${a.enabled ? "on" : ""}" data-act="agent" aria-label="AI triage agent"></button></div>`;
+}
+
 function fleetMoney(snapshot) {
   const f = snapshot.economics?.fleet;
   if (!f) return "";
@@ -243,6 +251,7 @@ export function renderControls(root, snapshot, meta) {
     ${world.enabled && activeRules.length ? `<ul class="active-rules">${activeRules.map((r) => `<li>● ${esc(r.site)}: ${esc(r.text)}</li>`).join("")}</ul>` : ""}
     <div class="row"><div class="what"><b>Human approval</b><span>risky responses wait for you; no answer in&nbsp;time means the&nbsp;default</span></div>
       <button class="switch ${snapshot.decisions?.enabled ? "on" : ""}" data-act="hitl" aria-label="Human approval"></button></div>
+    ${agentRow(snapshot.agent)}
     <div class="row"><div class="what"><b>Random scenarios</b><span>${ap.enabled ? (run ? "waiting for the current one to end" : `next in ${mins(ap.next_in_s)}`) : "off"}</span></div>
       <button class="switch ${ap.enabled ? "on" : ""}" data-act="autopilot" aria-label="Random scenarios"></button></div>
     <div class="row"><div class="what"><b>Dynamic pricing</b><span>public tariffs follow price spikes; dearer chargers lose drivers to&nbsp;competitors</span></div>
@@ -267,6 +276,8 @@ export function renderControls(root, snapshot, meta) {
     </table>
     <div class="control"><button class="mini" data-act="clear-chaos">Restore all networks</button></div>`;
   root.querySelector('[data-act="world"]').onclick = (e) => post("/api/world", { enabled: !world.enabled }, e.target);
+  const agentBtn = root.querySelector('[data-act="agent"]');
+  if (agentBtn) agentBtn.onclick = (e) => post("/api/agent", { enabled: !snapshot.agent?.enabled }, e.target);
   root.querySelector('[data-act="hitl"]').onclick = (e) => post("/api/hitl", { enabled: !snapshot.decisions?.enabled }, e.target);
   root.querySelector('[data-act="batteries"]').onclick = (e) => post("/api/batteries", { enabled: !snapshot.batteries_enabled }, e.target);
   root.querySelector('[data-act="pricing"]').onclick = (e) => post("/api/pricing", { enabled: !snapshot.economics?.dynamic }, e.target);
@@ -368,5 +379,31 @@ export function renderSlo(root, snapshot) {
       <td class="v">${r.value == null ? "–" : SLO_FMT[r.unit](r.value)}</td>
       <td class="t">target ${SLO_TARGET[r.unit](r.target, r.id !== "cap")}</td>
       <td><span class="slo-pill">${esc(r.status)}</span></td></tr>`).join("")}</table>
+    <h4>AI agent eval</h4>
+    <div id="eval-box">${evalHtml(lastEval)}</div>
     <p class="hint">Click a&nbsp;site, a&nbsp;charger, a&nbsp;metric or&nbsp;an&nbsp;incident for details. Click empty map to&nbsp;come back here.</p>`;
+  refreshEval(root);
+}
+
+let lastEval = null;
+let evalAt = 0;
+function refreshEval(root) {
+  if (Date.now() - evalAt < 30_000) return;
+  evalAt = Date.now();
+  fetch("/api/eval").then((r) => (r.ok ? r.json() : null)).then((e) => {
+    lastEval = e;
+    const box = root.querySelector("#eval-box");
+    if (box) box.innerHTML = evalHtml(e);
+  }).catch(() => {});
+}
+
+function evalHtml(e) {
+  if (!e) return `<p class="hint">No eval yet.</p>`;
+  const p = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
+  return `<table class="slo">
+    <tr class="${e.accuracy == null ? "" : e.accuracy >= 0.8 ? "met" : "missed"}"><td><b>Root cause right</b><br><span class="muted">any triage in&nbsp;the&nbsp;run, of ${e.runs_triaged} triaged runs (target ≥ 80%); first triage only: ${p(e.accuracy_first)}</span></td><td class="v">${p(e.accuracy)}</td></tr>
+    <tr class="${e.false_all_clear ? "missed" : "met"}"><td><b>False “all clear”</b><br><span class="muted">said nothing to do about a real fault (target 0)</span></td><td class="v">${e.false_all_clear}</td></tr>
+    <tr class="${e.median_seconds_to_summary == null ? "" : e.median_seconds_to_summary <= 120 ? "met" : "missed"}"><td><b>Time to summary</b><br><span class="muted">median, from incident open (target &lt; 2&nbsp;min)</span></td><td class="v">${e.median_seconds_to_summary == null ? "–" : `${Math.round(e.median_seconds_to_summary)}${NB}s`}</td></tr>
+    <tr><td><b>Cost per triage</b><br><span class="muted">average tokens in / out</span></td><td class="v">${e.avg_tokens_in ?? "–"} / ${e.avg_tokens_out ?? "–"}</td></tr>
+    </table><p class="meta">${e.runs} scenario runs scored since the agent went live (${e.runs_before_agent} earlier runs not scored); ${e.triages_total} triages, ${e.triages_outside_scenarios} outside scenarios. Small samples move a lot.</p>`;
 }
