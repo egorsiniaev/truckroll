@@ -1,0 +1,26 @@
+[
+  {
+    "name": "ams-depot",
+    "listen": "0.0.0.0:8001",
+    "upstream": "csms:9000",
+    "enabled": true
+  },
+  {
+    "name": "utr-retail",
+    "listen": "0.0.0.0:8002",
+    "upstream": "csms:9000",
+    "enabled": true
+  },
+  {
+    "name": "a2-hub",
+    "listen": "0.0.0.0:8003",
+    "upstream": "csms:9000",
+    "enabled": true
+  },
+  {
+    "name": "ehv-office",
+    "listen": "0.0.0.0:8004",
+    "upstream": "csms:9000",
+    "enabled": true
+  }
+]

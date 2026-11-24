@@ -1,0 +1,72 @@
+{
+  "$schemaVersion": 2,
+  "supervisionUrls": "ws://toxiproxy:8001",
+  "idTagsFile": "idtags.json",
+  "baseName": "AMS-DEPOT",
+  "chargePointModel": "AC22-DEPOT",
+  "chargePointVendor": "Truckroll Sim",
+  "firmwareVersion": "1.0.0",
+  "power": 22080,
+  "powerUnit": "W",
+  "powerSharedByConnectors": false,
+  "currentOutType": "AC",
+  "numberOfConnectors": 1,
+  "randomConnectors": false,
+  "Configuration": {
+    "configurationKey": [
+      {
+        "key": "MeterValuesSampledData",
+        "readonly": false,
+        "value": "Energy.Active.Import.Register,Power.Active.Import"
+      },
+      {
+        "key": "MeterValueSampleInterval",
+        "readonly": false,
+        "value": "30"
+      },
+      {
+        "key": "SupportedFeatureProfiles",
+        "readonly": true,
+        "value": "Core,FirmwareManagement,SmartCharging,RemoteTrigger"
+      },
+      {
+        "key": "AuthorizeRemoteTxRequests",
+        "readonly": false,
+        "value": "false"
+      },
+      {
+        "key": "WebSocketPingInterval",
+        "readonly": false,
+        "value": "60"
+      }
+    ]
+  },
+  "AutomaticTransactionGenerator": {
+    "enable": true,
+    "minDuration": 900,
+    "maxDuration": 2400,
+    "minDelayBetweenTwoTransactions": 120,
+    "maxDelayBetweenTwoTransactions": 900,
+    "probabilityOfStart": 0.8,
+    "stopAfterHours": 8760,
+    "requireAuthorize": true
+  },
+  "Connectors": {
+    "0": {},
+    "1": {
+      "bootStatus": "Available",
+      "MeterValues": [
+        {
+          "unit": "Wh",
+          "context": "Sample.Periodic",
+          "measurand": "Energy.Active.Import.Register"
+        },
+        {
+          "unit": "W",
+          "context": "Sample.Periodic",
+          "measurand": "Power.Active.Import"
+        }
+      ]
+    }
+  }
+}
