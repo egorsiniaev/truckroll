@@ -1,0 +1,88 @@
+name: truckroll
+
+services:
+  csms:
+    build: ./csms
+    environment:
+      CSMS_ID_TAGS_FILE: /config/idtags.json
+      CSMS_HEARTBEAT_INTERVAL_S: "30"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: csms
+    volumes:
+      - ./fleet/idtags.json:/config/idtags.json:ro
+    ports:
+      # The desk charger connects here over the LAN until the public server exists.
+      - "9000:9000"
+    depends_on: [otel-collector]
+    restart: unless-stopped
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.13.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    volumes:
+      - ./fleet/toxiproxy.json:/config/toxiproxy.json:ro
+    ports:
+      - "127.0.0.1:8474:8474"
+    depends_on: [csms]
+    restart: unless-stopped
+
+  simulator:
+    build:
+      context: https://github.com/SAP/e-mobility-charging-stations-simulator.git#v5.0
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ./fleet/config.json:/usr/app/dist/assets/config.json:ro
+      - ./fleet/idtags.json:/usr/app/dist/assets/idtags.json:ro
+      - ./fleet/station-templates/truckroll-ams-depot.station-template.json:/usr/app/dist/assets/station-templates/truckroll-ams-depot.station-template.json:ro
+      - ./fleet/station-templates/truckroll-utr-retail.station-template.json:/usr/app/dist/assets/station-templates/truckroll-utr-retail.station-template.json:ro
+      - ./fleet/station-templates/truckroll-a2-hub.station-template.json:/usr/app/dist/assets/station-templates/truckroll-a2-hub.station-template.json:ro
+      - ./fleet/station-templates/truckroll-ehv-office.station-template.json:/usr/app/dist/assets/station-templates/truckroll-ehv-office.station-template.json:ro
+    depends_on: [toxiproxy]
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    depends_on: [loki]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.6.22
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.3.1
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      # Localhost only: anonymous admin is fine on a laptop, never on a server.
+      - "127.0.0.1:3000:3000"
+    depends_on: [prometheus, loki]
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:
