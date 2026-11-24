@@ -66,8 +66,10 @@ def panel(kind, title, exprs, x, y, w, h, unit=None, thresholds=None, ds=P, desc
 STAT = {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}}
 
 # Row 1: is everything OK right now?
-panel("stat", "Uptime", [(f"sum({AVAIL}) / count({TOTAL})", None)], 0, 0, 4, 4, "percentunit", UPTIME, options=STAT,
-      desc="Working connectors (free or in use, on a connected station) / all connectors.")
+panel("stat", "Uptime, last 24 h", [(f"avg_over_time((sum({AVAIL}) / count({TOTAL}))[24h:1m])", None)], 0, 0, 4, 4,
+      "percentunit", UPTIME, options=STAT,
+      desc="Time-weighted: share of connector-time that was usable (station connected; connector free, preparing, "
+           "charging, suspended or finishing). Faulted, unavailable and offline time is downtime.")
 panel("stat", "Critical incidents", [('truckroll_incidents_open{severity="critical"}', None)], 4, 0, 4, 4, None, ZERO_GOOD,
       options=STAT)
 panel("stat", "Cars waiting", [("sum(truckroll_site_queue_cars)", None)], 8, 0, 4, 4, None, QUEUE, options=STAT)
@@ -87,7 +89,7 @@ panel("timeseries", "Cars waiting by site", [("truckroll_site_queue_cars", "{{si
       color_by_threshold=True)
 
 # Row 3: availability and power
-panel("timeseries", "Uptime by site", [(f"sum by (site) ({AVAIL}) / count by (site) ({TOTAL})", "{{site}}")],
+panel("timeseries", "Working connectors now, by site", [(f"sum by (site) ({AVAIL}) / count by (site) ({TOTAL})", "{{site}}")],
       0, 12, 8, 8, "percentunit", UPTIME, color_by_threshold=True, minv=0, maxv=1)
 panel("timeseries", "Power vs cap by site", [("truckroll_site_power_watts", "{{site}} power"),
                                              ("truckroll_site_cap_watts", "{{site}} cap"),

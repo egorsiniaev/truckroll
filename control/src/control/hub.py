@@ -21,6 +21,7 @@ from control.limits import SOURCE_LABELS, LimitArbiter
 from control.prices import PriceClient, PriceError, summarize
 from control.scenarios import Ledger, Runner
 from control.state import build_snapshot, detect_events, group_events
+from control.uptime import UptimeTracker
 from control.world import WorldEngine, solar_w
 
 log = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ class Hub:
         self.incidents = IncidentManager(self.sites, self.clients)
         self.autopilot = Autopilot(self.runner, enabled=self.autopilot_default)
         self.economics = Economics(self.sites, dynamic=self.dynamic_pricing_default)
+        self.uptime = UptimeTracker([s["code"] for s in self.sites])
         self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
                                    on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices))
 
@@ -158,6 +160,10 @@ class Hub:
             site["solar_w"] = solar_w(site, site.get("weather"))
         if stations and dt:
             self.economics.accrue(snap["sites"], self.prices, min(dt, 30.0), datetime.now(UTC))
+            self.uptime.accrue(snap["stations"], min(dt, 30.0), datetime.now(UTC))
+        uptime = self.uptime.summary()
+        snap["kpis"]["uptime_today"] = uptime["fleet"]
+        snap["kpis"]["uptime_since"] = uptime["since"]
         money = self.economics.summary()
         demand = self.demand.status()
         shares, reasons = self.world.shares(), self.world.reasons()
@@ -167,6 +173,8 @@ class Hub:
             code = site["code"]
             factor = demand_factor(by_code[code], tariffs[code])
             site["economics"] = money["sites"].get(code, {})
+            site["uptime_today"] = uptime["sites"].get(code)
+            site["downtime_min"] = uptime["connector_downtime_min"].get(code)
             site["demand"] = {**demand.get(code, {}), "share": shares.get(code), "reason": reasons.get(code),
                               "price_factor": factor}
             site["rules"] = [r.__dict__ for r in self.world.rules if r.site == site["code"]]

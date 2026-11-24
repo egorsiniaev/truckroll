@@ -15,7 +15,7 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Uptime",
+      "title": "Uptime, last 24 h",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -33,7 +33,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(max by (site, station, connector) (csms_connector_status{status=~\"Available|Preparing|Charging|SuspendedEV|SuspendedEVSE|Finishing\"}) * on(station) group_left() max by (station) (csms_station_connected)) / count(max by (site, station, connector) (csms_connector_status{status=\"Available\"}))"
+          "expr": "avg_over_time((sum(max by (site, station, connector) (csms_connector_status{status=~\"Available|Preparing|Charging|SuspendedEV|SuspendedEVSE|Finishing\"}) * on(station) group_left() max by (station) (csms_station_connected)) / count(max by (site, station, connector) (csms_connector_status{status=\"Available\"})))[24h:1m])"
         }
       ],
       "fieldConfig": {
@@ -71,7 +71,7 @@
           ]
         }
       },
-      "description": "Working connectors (free or in use, on a connected station) / all connectors."
+      "description": "Time-weighted: share of connector-time that was usable (station connected; connector free, preparing, charging, suspended or finishing). Faulted, unavailable and offline time is downtime."
     },
     {
       "id": 2,
@@ -548,7 +548,7 @@
     {
       "id": 10,
       "type": "timeseries",
-      "title": "Uptime by site",
+      "title": "Working connectors now, by site",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

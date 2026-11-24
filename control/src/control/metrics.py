@@ -27,6 +27,8 @@ def metrics_text(snap: Mapping) -> str:
     gauge("truckroll_site_cap_watts", "Site grid connection cap", site_rows(lambda s: s["cap_w"]))
     gauge("truckroll_site_solar_watts", "Live solar at the site", site_rows(lambda s: s.get("solar_w")))
     gauge("truckroll_site_load_ratio", "Power / grid cap", site_rows(lambda s: s.get("cap_used")))
+    gauge("truckroll_site_uptime_today", "Time-weighted uptime since local midnight (or service start)",
+          site_rows(lambda s: s.get("uptime_today")))
     gauge("truckroll_site_free_connectors", "Connectors free right now", site_rows(lambda s: s.get("free")))
     gauge("truckroll_site_queue_cars", "Cars waiting for a connector",
           site_rows(lambda s: (s.get("demand") or {}).get("queue")))
