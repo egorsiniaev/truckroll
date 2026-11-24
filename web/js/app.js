@@ -1,5 +1,5 @@
 // Wires the live stream to the scene, header, incident feed and panel.
-import { esc, renderControls, renderSite, renderStation } from "./panel.js";
+import { esc, renderControls, renderKpi, renderSite, renderStation } from "./panel.js";
 import { buildScene, updateScene } from "./scene.js";
 
 const NB = " ";
@@ -70,6 +70,20 @@ window.addEventListener("pointerup", () => {
   svg.classList.remove("dragging");
 });
 svg.addEventListener("click", (e) => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); suppressClick = false; } }, true);
+// A click on empty map clears the selection.
+svg.addEventListener("click", (e) => {
+  if (e.target.closest(".site, .station, .label-card")) return;
+  if (!selected) return;
+  selected = null;
+  history.replaceState(null, "", location.search || location.pathname);
+  details.innerHTML = `<p class="hint">Click a&nbsp;site, a&nbsp;charger or&nbsp;an&nbsp;incident to&nbsp;see what’s going on and&nbsp;to&nbsp;control&nbsp;it.</p>`;
+  render();
+});
+// Clicking a KPI chip explains it.
+document.querySelectorAll(".kpi").forEach((k) => {
+  k.classList.add("clickable");
+  k.onclick = () => { selected = { type: "kpi", id: k.dataset.kpi }; switchTab("details"); render(); };
+});
 function zoom(factor, cx, cy) {
   const w = Math.min(4000, Math.max(400, vb.w * factor));
   const h = w * (vb.h / vb.w);
@@ -116,7 +130,8 @@ const forcedPhase = new URLSearchParams(location.search).get("phase"); // previe
 function renderHeader() {
   const k = snapshot.kpis;
   const capTotal = snapshot.sites.reduce((a, s) => a + s.cap_w, 0);
-  setKpi("availability", k.availability, k.availability == null ? "–" : `${Math.round(k.availability * 100)}%`, (k.availability ?? 1) < 0.95);
+  const up = k.uptime_today;
+  setKpi("availability", up, up == null ? "–" : `${(up * 100).toFixed(1)}%`, (up ?? 1) < 0.97);
   setKpi("charging", k.connectors_total ? k.charging / k.connectors_total : 0, `${k.charging}/${k.connectors_total}`);
   setKpi("queue", Math.min(1, (k.queue ?? 0) / 10), `${k.queue ?? 0}`, (k.queue ?? 0) >= 5);
   const load = capTotal ? k.power_w / capTotal : 0;
@@ -197,6 +212,7 @@ function renderPanel() {
   if (Date.now() < holdUntil) return;
   if (activeTab === "controls") { if (!controlsBusy()) renderControls(controls, snapshot, meta); return; }
   if (!selected) return;
+  if (selected.type === "kpi") { renderKpi(details, selected.id, snapshot); return; }
   if (selected.type === "site") {
     const site = snapshot.sites.find((s) => s.code === selected.id);
     if (site) renderSite(details, site, snapshot, ctx);

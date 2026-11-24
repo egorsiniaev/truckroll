@@ -17,7 +17,8 @@ const CENTERS = [[-20, 0], [0, -20], [0, 20], [20, 0]];
 const ROUTE_Y_FIRST = [true, false, false, true];
 const PLATFORM_COLORS = ["#e8eef7", "#eef3ea", "#f3eee6", "#ebe9f4"];
 // Cars are just cars: a mix of everyday colours. The small light on each one is the connector state.
-const CAR_COLORS = ["#f8fafc", "#cbd5e1", "#334155", "#dc2626", "#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#0f172a", "#e5e7eb"];
+// No red, green, yellow or blue: those colours mean status on this map.
+const CAR_COLORS = ["#f8fafc", "#e2e8f0", "#94a3b8", "#475569", "#1f2937", "#d6c7a9", "#7c5c3b", "#5b6b7a", "#0f172a", "#c4b5a5"];
 const carColor = (n) => CAR_COLORS[(n * 7 + 3) % CAR_COLORS.length];
 const QUEUE_SLOTS = 8;
 export const loadClass = (ratio) => (ratio == null ? "load-low" : ratio >= 0.7 ? "load-high" : ratio >= 0.3 ? "load-mid" : "load-low");
@@ -340,8 +341,9 @@ export function updateScene(snapshot, selected) {
     (st?.connectors ?? []).forEach((c, i) => {
       const car = r.cars[i];
       if (!car) return;
-      const plugged = st.connected && WITH_CAR.has(c.status);
-      car.g.classList.toggle("hidden", !plugged);
+      // Offline stations keep their last known cars, greyed out: we just can't see them right now.
+      car.g.classList.toggle("hidden", !WITH_CAR.has(c.status));
+      car.g.classList.toggle("stale", !st.connected);
       car.light.setAttribute("fill", PLUG_COLORS[c.status] ?? "transparent");
       car.light.classList.toggle("glow", c.status === "Charging");
     });

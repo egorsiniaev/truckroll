@@ -17,7 +17,7 @@
       </p>
     </div>
     <div class="kpis" id="kpis">
-      <div class="kpi" data-kpi="availability" title="Connectors that work (free or in use) out of all connectors"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Uptime</span></div></div>
+      <div class="kpi" data-kpi="availability" title="Click for details"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Uptime today</span></div></div>
       <div class="kpi" data-kpi="charging"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Charging</span></div></div>
       <div class="kpi" data-kpi="queue"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Cars waiting</span></div></div>
       <div class="kpi" data-kpi="power"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Power vs caps</span></div></div>
@@ -49,11 +49,11 @@
     </div>
 
     <section class="legend">
-      <span><i class="dot available"></i>Available</span>
-      <span><i class="dot preparing"></i>Preparing</span>
-      <span><i class="dot charging"></i>Charging</span>
-      <span><i class="dot faulted"></i>Faulted</span>
-      <span><i class="dot offline"></i>Offline</span>
+      <span title="Free: no car, ready to charge"><i class="dot available"></i>Available</span>
+      <span title="Car plugged in or session starting or ending; no energy flowing yet (OCPP Preparing / Finishing)"><i class="dot preparing"></i>Preparing</span>
+      <span title="Energy is flowing to the car (OCPP Charging; Suspended means paused by the car or the charger)"><i class="dot charging"></i>Charging</span>
+      <span title="The charger reported an error and can't charge"><i class="dot faulted"></i>Faulted</span>
+      <span title="No contact with the backend; last known state shown greyed out"><i class="dot offline"></i>Offline</span>
       <span class="sep"><i class="car-icon"></i>Car plugged in; its light is&nbsp;the&nbsp;connector state. Cars in&nbsp;the&nbsp;lane in&nbsp;front are waiting.</span>
     </section>
   </main>

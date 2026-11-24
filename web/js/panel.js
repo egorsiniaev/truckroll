@@ -7,6 +7,11 @@ const kwh = (wh) => `${(wh / 1000).toFixed(1)}${NB}kWh`;
 const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const LATENCIES = [0, 500, 2000, 5000];
+const STATUS_CLASS = { Available: "ok", Preparing: "warn", Finishing: "warn", Charging: "info", SuspendedEV: "info",
+  SuspendedEVSE: "info", Faulted: "bad", Unavailable: "bad" };
+const STATUS_HELP = "Statuses are OCPP 1.6: Available = free; Preparing = car plugged in, session starting, no energy yet; "
+  + "Charging = energy flowing; Suspended = paused by the car or the charger; Finishing = session ended, car still "
+  + "plugged in; Faulted = error, can't charge.";
 const eur = (v) => `${v < 0 ? "−" : ""}€${Math.abs(v ?? 0).toFixed(2)}`;
 const mins = (s) => (s == null ? "–" : s >= 60 ? `${Math.round(s / 60)}${NB}min` : `${Math.round(s)}${NB}s`);
 
@@ -58,7 +63,7 @@ export function renderSite(root, site, snapshot, ctx) {
       ${stat(kw(site.power_w), `of ${kw(site.cap_w)} grid cap (${Math.round(used * 100)}%)`)}
       ${stat(`${site.free}/${site.connectors_total}`, "connectors free now")}
       ${stat(`${dem.queue ?? 0}`, dem.queue ? `waiting, longest ${mins(dem.longest_wait_s)}` : "cars waiting")}
-      ${stat(pct(site.availability), "uptime (working connectors)")}
+      ${stat(pct(site.uptime_today), "uptime today (time-weighted)")}
     </div>
     <div class="bar"><i class="${loadClass(site.cap_used)}" style="width:${Math.min(100, used * 100).toFixed(1)}%"></i></div>
     ${ctl?.active ? `<p class="meta">Site controller active: chargers share the cap at ${kw(ctl.share_w)} each, so sessions take longer.</p>` : ""}
@@ -83,7 +88,7 @@ export function renderSite(root, site, snapshot, ctx) {
       ${stat(kw(Math.max(0, site.power_w - (site.solar_w ?? 0))), "drawn from the grid")}
     </div><p class="meta">Open-Meteo, ${esc(w.time ?? "")}${w.stale ? " (stale)" : ""}</p>` : `<p class="hint">No weather yet.</p>`}
     <h4>Network</h4>
-    <div class="row"><div class="what"><b>${site.network.enabled ? "Connected" : "Outage"}</b><span>${site.network.latency_ms ? `+${site.network.latency_ms}${NB}ms added latency` : "no added latency"}</span></div>
+    <div class="row"><div class="what"><b class="${site.network.enabled ? (site.network.latency_ms ? "warn" : "ok") : "bad"}">${site.network.enabled ? "Connected" : "Outage: site can't reach the backend"}</b><span class="${site.network.latency_ms ? "warn" : ""}">${site.network.latency_ms ? `+${site.network.latency_ms}${NB}ms added latency` : "no added latency"}</span></div>
       <button class="mini ${site.network.enabled ? "danger" : "primary"}" data-act="outage">${site.network.enabled ? "Cut network" : "Restore"}</button></div>
     <h4>Stations</h4>
     <div class="chips">${stations.map((s) => `<button class="chip" data-station="${esc(s.id)}"><i class="dot ${s.state}"></i>${esc(s.id.replace(`${site.code}-`, ""))}</button>`).join("")}</div>
@@ -101,18 +106,19 @@ export function renderStation(root, st, site, meta, snapshot, ctx) {
     <p class="meta"><a href="#" data-site>${esc(st.site)}</a></p>
     <h3>${esc(st.id)} ${pill(st.state)}</h3>
     <p class="meta">${esc(st.vendor)} ${esc(st.model)} · firmware ${esc(st.firmware || "–")}</p>
-    ${incidents.map((i) => `<p class="meta" style="color:#b91c1c">Open incident: ${esc(i.title)}</p>`).join("")}
+    ${incidents.map((i) => `<p class="meta bad">Open incident: ${esc(i.title)}</p>`).join("")}
     <div class="grid2">
       ${stat(kw(st.power_w), "power now")}
       ${stat(st.limit_w == null ? "none" : kw(st.limit_w), "power limit")}
       ${stat(`${st.heartbeat_age_s}${NB}s`, "since last message")}
-      ${stat(st.connected ? "online" : "offline", "connection")}
+      ${stat(`<i class="val ${st.connected ? "ok" : "bad"}">${st.connected ? "online" : "offline"}</i>`, "connection")}
     </div>
     ${sources.length ? `<p class="meta">Limited by: ${sources.map(([k, v]) => `${esc(k)} ${kw(v)}`).join(", ")} (lowest wins)</p>` : ""}
     <h4>Connectors</h4>
-    <table><tr><th>#</th><th>Status</th><th>Power</th><th>Energy</th><th>Error</th></tr>
-      ${st.connectors.map((c) => `<tr><td>${c.id}</td><td>${esc(c.status)}</td><td>${kw(c.power_w)}</td><td>${kwh(c.energy_wh)}</td><td>${c.error_code === "NoError" ? "–" : esc(c.error_code)}</td></tr>`).join("")}
+    <table><tr><th>#</th><th>Status</th><th title="Charging power right now, from the charger's meter">Power now</th><th title="Energy delivered to the car in the current session">This session</th><th>Error</th></tr>
+      ${st.connectors.map((c) => `<tr><td>${c.id}</td><td><span class="st ${STATUS_CLASS[c.status] ?? ""}">${esc(c.status)}</span></td><td>${kw(c.power_w)}</td><td>${c.session_wh != null ? kwh(c.session_wh) : "–"}</td><td>${c.error_code === "NoError" ? "–" : `<span class="bad">${esc(c.error_code)}</span>`}</td></tr>`).join("")}
     </table>
+    <p class="meta">${STATUS_HELP}</p>
     <h4>Control</h4>
     <div class="control">
       <label for="limit">Operator power limit (OCPP smart-charging profile)</label>
@@ -198,7 +204,7 @@ export function renderControls(root, snapshot, meta) {
     ${(meta.scenarios || []).map((s) => `<div class="row scen ${run?.id === s.id ? "is-running" : ""}" title="${esc(s.description)}"><span class="scen-icon" aria-hidden="true">${esc(s.icon ?? "⚠️")}</span><div class="what"><b>${esc(s.title)}</b><span>${esc(s.description)}</span></div>
       <button class="mini" data-scenario="${esc(s.id)}" ${run ? "disabled" : ""}>Start</button></div>`).join("")}
     <h4>Network per site</h4>
-    <table class="chaos">${snapshot.sites.map((s) => `<tr><td><b>${esc(s.code)}</b></td>
+    <table class="chaos">${snapshot.sites.map((s) => `<tr><td><b class="${s.network.enabled ? (s.network.latency_ms ? "warn" : "ok") : "bad"}">${esc(s.code)}</b></td>
       <td><button class="mini ${s.network.enabled ? "danger" : "primary"}" data-outage="${esc(s.code)}" data-on="${s.network.enabled}">${s.network.enabled ? "Cut" : "Restore"}</button></td>
       <td><select data-lat="${esc(s.code)}">${LATENCIES.map((ms) => `<option value="${ms}" ${ms === s.network.latency_ms ? "selected" : ""}>${ms ? `+${ms}${NB}ms` : "no latency"}</option>`).join("")}</select></td></tr>`).join("")}
     </table>
@@ -212,4 +218,69 @@ export function renderControls(root, snapshot, meta) {
   root.querySelector('[data-act="clear-chaos"]').onclick = (e) => post("/api/chaos/clear", {}, e.target);
   const stop = root.querySelector('[data-act="stop-scenario"]');
   if (stop) stop.onclick = (e) => post("/api/scenarios/stop", {}, e.target);
+}
+
+
+const KPI_INFO = {
+  availability: {
+    title: "Uptime today",
+    what: "Share of connector-time that was usable since local midnight (or since the control service started). "
+      + "Usable = station connected and connector free, preparing, charging, suspended or finishing. Faulted, "
+      + "unavailable and offline time is downtime. This is how charging uptime is reported; US NEVI asks for 97 % or more.",
+    rows: (s) => s.sites.map((x) => [x.code, pct(x.uptime_today), `${x.downtime_min ?? 0}${NB}connector-min down`]),
+    value: (s) => `${((s.kpis.uptime_today ?? 0) * 100).toFixed(2)}% since ${s.kpis.uptime_since || "–"}`,
+  },
+  charging: {
+    title: "Charging now",
+    what: "Connectors with energy flowing to a car right now (OCPP Charging or Suspended), out of all connectors.",
+    rows: (s) => s.sites.map((x) => [x.code, `${x.states?.charging ?? 0} stations charging`, `${x.free}/${x.connectors_total} free`]),
+    value: (s) => `${s.kpis.charging} of ${s.kpis.connectors_total} connectors`,
+  },
+  queue: {
+    title: "Cars waiting",
+    what: "Drivers queued for a free connector. They give up after their patience runs out (minutes at retail and "
+      + "the highway, hours at the depot); that is lost revenue. Queues grow when demand is high or a grid cap "
+      + "slows charging.",
+    rows: (s) => s.sites.map((x) => [x.code, `${x.demand?.queue ?? 0} waiting`, `${x.demand?.abandoned ?? 0} gave up today`]),
+    value: (s) => `${s.kpis.queue ?? 0} cars`,
+  },
+  power: {
+    title: "Power vs grid caps",
+    what: "Total charging power against the sum of the sites' grid connection caps. Below 30 % green, 30-70 % "
+      + "yellow, 70 % and up red. Above 100 % at a site, the site controller limits chargers.",
+    rows: (s) => s.sites.map((x) => [x.code, `${(x.power_w / 1000).toFixed(0)} of ${(x.cap_w / 1000).toFixed(0)}${NB}kW`, pct(x.cap_used)]),
+    value: (s) => `${(s.kpis.power_w / 1000).toFixed(0)}${NB}kW`,
+  },
+  price: {
+    title: "Power price",
+    what: "ENTSO-E day-ahead price for the Netherlands, 15-minute slots. Energy cost = this price plus about "
+      + "€0.11/kWh in fees. In the day's top 20 %, the depot fleet charges at half power; with dynamic pricing, "
+      + "public tariffs rise and some drivers go elsewhere.",
+    rows: (s) => s.sites.map((x) => [x.code, `tariff €${(x.economics?.tariff_eur_kwh ?? 0).toFixed(2)}/kWh`, `cost €${(x.economics?.buy_eur_kwh ?? 0).toFixed(2)}/kWh`]),
+    value: (s) => (s.prices?.available ? `€${s.prices.now_eur_mwh.toFixed(0)}/MWh (today €${s.prices.min_eur_mwh.toFixed(0)} to €${s.prices.max_eur_mwh.toFixed(0)})` : "no data"),
+  },
+  margin: {
+    title: "Margin today",
+    what: "Revenue from charging minus the cost of grid energy, since local midnight (or service start). Solar is free.",
+    rows: (s) => s.sites.map((x) => [x.code, eur(x.economics?.margin_eur), `lost ${eur(x.economics?.lost_eur)}`]),
+    value: (s) => eur(s.economics?.fleet?.margin_eur),
+  },
+  incidents: {
+    title: "Open incidents",
+    what: "Problems the system detected and is handling: what happened, the automatic response, and recovery. "
+      + "Click an incident in the strip above the map for its timeline.",
+    rows: (s) => (s.incidents || []).filter((i) => i.status !== "recovered").map((i) => [i.site, i.title, i.status]),
+    value: (s) => `${(s.incidents || []).filter((i) => i.status === "open").length} open`,
+  },
+};
+
+export function renderKpi(root, id, snapshot) {
+  const info = KPI_INFO[id];
+  if (!info) return;
+  const rows = info.rows(snapshot);
+  root.innerHTML = `
+    <h3>${esc(info.title)}</h3>
+    <p class="kpi-value">${esc(info.value(snapshot))}</p>
+    <p>${esc(info.what)}</p>
+    ${rows.length ? `<table>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table>` : `<p class="hint">Nothing right now.</p>`}`;
 }

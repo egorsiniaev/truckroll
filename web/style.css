@@ -369,3 +369,12 @@ table.chaos select { padding: 3px 6px; font-size: 11px; }
 .feed li.inc-row { display: block; }
 .inc-row .title { max-width: 45%; }
 .inc-row small { margin-left: auto; }
+
+.car.stale { filter: grayscale(1) brightness(.85); opacity: .5; }
+.ok { color: #15803d; } .bad { color: #b91c1c; } .warn { color: #b45309; } .info { color: #1d4ed8; }
+.st { font-weight: 600; }
+.kpi.clickable { cursor: pointer; }
+.kpi.clickable:hover { box-shadow: 0 0 0 2px #bfdbfe, var(--shadow); }
+.kpi-value { font-size: 20px; font-weight: 700; margin: 4px 0 10px; }
+.legend span[title] { cursor: help; }
+.stat b i.val { font-style: normal; }
