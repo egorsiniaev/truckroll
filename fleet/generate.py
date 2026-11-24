@@ -111,7 +111,7 @@ def simulator_config() -> dict:
             "type": "ws",
             "options": {"host": "::", "port": 8080},
             "accessPolicy": {"allowedHosts": ["simulator", "localhost", "127.0.0.1"], "requireTlsForNonLoopback": False},
-            "authentication": {"enabled": False},
+            "authentication": {"enabled": False, "type": "protocol-basic-auth"},
         },
         "stationTemplateUrls": [{"file": template_file(s), "numberOfStations": s.stations} for s in SITES],
     }
