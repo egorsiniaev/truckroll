@@ -9,7 +9,9 @@
     "lat": 52.401,
     "lon": 4.817,
     "cap_w": 250000,
-    "proxy": "ams-depot"
+    "proxy": "ams-depot",
+    "pv_w": 150000,
+    "demand": "depot"
   },
   {
     "code": "UTR-RETAIL",
@@ -21,7 +23,9 @@
     "lat": 52.093,
     "lon": 5.118,
     "cap_w": 200000,
-    "proxy": "utr-retail"
+    "proxy": "utr-retail",
+    "pv_w": 60000,
+    "demand": "retail"
   },
   {
     "code": "A2-HUB",
@@ -33,7 +37,9 @@
     "lat": 51.972,
     "lon": 5.094,
     "cap_w": 600000,
-    "proxy": "a2-hub"
+    "proxy": "a2-hub",
+    "pv_w": 80000,
+    "demand": "highway"
   },
   {
     "code": "EHV-OFFICE",
@@ -45,6 +51,8 @@
     "lat": 51.441,
     "lon": 5.478,
     "cap_w": 80000,
-    "proxy": "ehv-office"
+    "proxy": "ehv-office",
+    "pv_w": 40000,
+    "demand": "office"
   }
 ]

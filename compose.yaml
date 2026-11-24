@@ -24,9 +24,12 @@ services:
       SIMULATOR_UI_URL: ws://simulator:8080
       SITES_FILE: /config/sites.json
       WEB_DIR: /web
+      LEDGER_FILE: /data/ledger.jsonl
     volumes:
       - ./fleet/sites.json:/config/sites.json:ro
       - ./web:/web:ro
+      # Incident ledger = eval ground truth; kept out of the agent's reach.
+      - control-data:/data
     ports:
       # Local only: the control API has no auth yet.
       - "127.0.0.1:8080:8000"
@@ -100,6 +103,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  control-data:
   prometheus-data:
   loki-data:
   grafana-data:

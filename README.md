@@ -14,12 +14,15 @@ Goals: [GOALS.md](GOALS.md). Plan: [PLAN.md](PLAN.md). Original spec: [SPEC.md](
 | `fleet/` | SAP charging-stations simulator config |
 | `observability/` | OTel, Prometheus, Loki, Grafana (docker compose) |
 | `agent/` | Triage agent, approval-gated commands |
+| `control/` | Live state, chaos controls, real-world mode, scenarios, incident ledger |
+| `web/` | Live isometric page (plain SVG + JS, no build step) |
 | `.github/workflows/` | SBOM (Syft) and vulnerability scan (Grype) |
 
 ## Status
 
-Week 1 runs locally: CSMS, 50 simulated stations behind Toxiproxy, OTel collector, Prometheus, Loki, Grafana.
-No public server yet; the desk charger and the public page come later.
+Runs locally: CSMS, 50 simulated stations behind Toxiproxy, OTel collector, Prometheus, Loki, Grafana, and a
+live web page with a control panel, real-world mode (local time + live weather) and scripted incident scenarios.
+No public server yet; the desk charger comes when the hardware is wired.
 
 ## Run locally
 
@@ -27,6 +30,7 @@ Needs Docker with Compose (Colima works).
 
 ```bash
 docker compose up -d --build   # first build of the simulator takes a few minutes
+open http://localhost:8080     # live page: map, details, control panel, scenarios
 open http://localhost:3000     # Grafana -> Truckroll fleet
 docker compose down            # stop; add -v to drop stored metrics and logs
 ```

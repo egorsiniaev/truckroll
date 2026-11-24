@@ -30,17 +30,19 @@ class Site:
     lat: float
     lon: float
     cap_kw: int  # grid connection cap; below installed power on purpose, so the controller has work to do
+    pv_kwp: int  # rooftop/carport solar, turned into live kW from real irradiance
+    demand: str  # arrival profile over the local day: depot, retail, highway, office
 
 
 SITES = (
     Site("AMS-DEPOT", "logistics depot", 20, 1, 22_080, "AC", "Truckroll Sim", "AC22-DEPOT", (900, 2400), (120, 900),
-         52.401, 4.817, 250),
+         52.401, 4.817, 250, 150, "depot"),
     Site("UTR-RETAIL", "retail parking", 12, 2, 22_080, "AC", "Truckroll Sim", "AC22-DUO", (600, 1800), (60, 600),
-         52.093, 5.118, 200),
+         52.093, 5.118, 200, 60, "retail"),
     Site("A2-HUB", "highway fast-charging hub", 8, 2, 150_000, "DC", "Truckroll Sim", "DC150", (600, 1500), (60, 400),
-         51.972, 5.094, 600),
+         51.972, 5.094, 600, 80, "highway"),
     Site("EHV-OFFICE", "office campus", 10, 1, 11_040, "AC", "Truckroll Sim", "AC11-OFFICE", (1800, 3600), (300, 1800),
-         51.441, 5.478, 80),
+         51.441, 5.478, 80, 40, "office"),
 )
 
 
@@ -127,7 +129,8 @@ def toxiproxy_config() -> list[dict]:
 def sites_metadata() -> list[dict]:
     return [
         {"code": s.code, "kind": s.kind, "stations": s.stations, "connectors": s.connectors, "power_w": s.power_w,
-         "current": s.current, "lat": s.lat, "lon": s.lon, "cap_w": s.cap_kw * 1000, "proxy": s.code.lower()}
+         "current": s.current, "lat": s.lat, "lon": s.lon, "cap_w": s.cap_kw * 1000, "proxy": s.code.lower(),
+         "pv_w": s.pv_kwp * 1000, "demand": s.demand}
         for s in SITES
     ]
 
