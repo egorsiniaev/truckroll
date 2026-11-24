@@ -143,6 +143,8 @@ class WeatherClient:
             "latitude": ",".join(str(c[0]) for c in coords),
             "longitude": ",".join(str(c[1]) for c in coords),
             "current": self.FIELDS,
+            "daily": "sunrise,sunset",
+            "forecast_days": 1,
             "wind_speed_unit": "kmh",
             "timezone": "Europe/Amsterdam",
         }
@@ -151,7 +153,10 @@ class WeatherClient:
         out = []
         for row in rows:
             cur = row.get("current", {})
+            daily = row.get("daily", {})
             out.append({
+                "sunrise": (daily.get("sunrise") or [None])[0],
+                "sunset": (daily.get("sunset") or [None])[0],
                 "temp_c": cur.get("temperature_2m"),
                 "gust_kmh": cur.get("wind_gusts_10m"),
                 "cloud_pct": cur.get("cloud_cover"),

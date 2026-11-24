@@ -16,6 +16,7 @@ COLD_C = 3.0
 COLD_DERATE = 0.75
 STORM_GUST_KMH = 60.0
 STORM_LATENCY_MS = 1500
+PRICE_DERATE = 0.5  # flexible depot fleet charges at half power in the day's most expensive slots
 
 # Share of stations with arrivals, by local hour range [start, end).
 DEMAND_PROFILES: dict[str, tuple[tuple[int, int, float], ...]] = {
@@ -69,6 +70,19 @@ def weather_rules(site: Mapping, weather: Mapping | None) -> list[Rule]:
     return rules
 
 
+def price_rule(site: Mapping, prices: Mapping | None) -> Rule | None:
+    if site.get("demand") != "depot":
+        return None
+    if not prices or not prices.get("available"):
+        return Rule(site["code"], "price", False, "price data not available")
+    p = prices["now_eur_mwh"]
+    if prices["expensive"]:
+        return Rule(site["code"], "price", True,
+                    f"€{p:.0f}/MWh is in today's top 20%: depot fleet charges at {int(PRICE_DERATE * 100)}%")
+    return Rule(site["code"], "price", False,
+                f"€{p:.0f}/MWh; slows the depot at €{prices['expensive_from_eur_mwh']:.0f}/MWh or more")
+
+
 def local_hour(now: datetime | None = None) -> int:
     return (now or datetime.now(TZ)).astimezone(TZ).hour
 
@@ -76,14 +90,14 @@ def local_hour(now: datetime | None = None) -> int:
 class WorldEngine:
     """Applies real-world rules on each tick while enabled; undoes its own changes when disabled."""
 
-    def __init__(self, sites: list[dict], clients) -> None:
+    def __init__(self, sites: list[dict], clients, arbiter, enabled: bool = False) -> None:
         self.sites = sites
         self.clients = clients
-        self.enabled = False
+        self.arbiter = arbiter
+        self.enabled = enabled
         self.rules: list[Rule] = []
         self.targets: dict[str, float] = {}
         self._atg_off: set[str] = set()
-        self._derated: set[str] = set()
         self._stormy: set[str] = set()
         self._busy_counts: dict[str, int] = {}
 
@@ -95,9 +109,10 @@ class WorldEngine:
             "rules": [r.__dict__ for r in self.rules],
         }
 
-    async def tick(self, snapshot: Mapping, weather: Mapping[str, Mapping]) -> list[str]:
+    async def tick(self, snapshot: Mapping, weather: Mapping[str, Mapping], prices: Mapping | None = None) -> list[str]:
         """Returns human-readable changes made, for the event feed."""
         self.rules = [r for s in self.sites for r in weather_rules(s, weather.get(s["code"]))]
+        self.rules += [r for s in self.sites if (r := price_rule(s, prices)) is not None]
         if not self.enabled:
             return []
         changes: list[str] = []
@@ -113,7 +128,11 @@ class WorldEngine:
             changes += await self._apply_demand(site["code"], ids, active_stations(ids, share))
             rules = {r.rule: r for r in self.rules if r.site == site["code"]}
             if "cold_derate" in rules:
-                changes += await self._apply_cold(site, stations, rules["cold_derate"].active)
+                changes += await self._apply_derate(site, stations, "cold", rules["cold_derate"].active, COLD_DERATE,
+                                                    "cold")
+            if "price" in rules:
+                changes += await self._apply_derate(site, stations, "price", rules["price"].active, PRICE_DERATE,
+                                                    "expensive power")
             changes += await self._apply_storm(site, rules["storm_network"].active)
         return changes
 
@@ -131,25 +150,19 @@ class WorldEngine:
             return [f"{code}: arrivals at {count}/{len(ids)} stations for this hour"]
         return []
 
-    async def _apply_cold(self, site: Mapping, stations: list[dict], cold: bool) -> list[str]:
-        derated, restored = 0, 0
-        for st in stations:
-            if not st.get("connected"):
-                continue
-            if cold and st["id"] not in self._derated:
-                await self.clients.csms.set_limit(st["id"], site["power_w"] * COLD_DERATE)
-                self._derated.add(st["id"])
-                derated += 1
-            elif not cold and st["id"] in self._derated:
-                await self.clients.csms.set_limit(st["id"], None)
-                self._derated.discard(st["id"])
-                restored += 1
-        out = []
-        if derated:
-            out.append(f"{site['code']}: cold, {derated} DC stations limited to {int(COLD_DERATE * 100)}%")
-        if restored:
-            out.append(f"{site['code']}: warmer, {restored} DC stations back to full power")
-        return out
+    async def _apply_derate(self, site: Mapping, stations: list[dict], source: str, active: bool, factor: float,
+                            reason: str) -> list[str]:
+        ids = [st["id"] for st in stations if st.get("connected")]
+        had = set(self.arbiter.stations_for(source)) & {st["id"] for st in stations}
+        if active:
+            todo = [i for i in ids if i not in had]
+            if todo:
+                await self.arbiter.set_many(source, {i: site["power_w"] * factor for i in todo})
+                return [f"{site['code']}: {reason}, {len(todo)} stations limited to {int(factor * 100)}%"]
+        elif had:
+            await self.arbiter.clear_source(source, sorted(had))
+            return [f"{site['code']}: no more {reason}, {len(had)} stations back to full power"]
+        return []
 
     async def _apply_storm(self, site: Mapping, storm: bool) -> list[str]:
         code = site["code"]
@@ -170,9 +183,8 @@ class WorldEngine:
             await self.clients.simulator.set_atg_many(sorted(self._atg_off), True)
             self._atg_off.clear()
         self._busy_counts.clear()
-        for sid in sorted(self._derated):
-            await self.clients.csms.set_limit(sid, None)
-        self._derated.clear()
+        await self.arbiter.clear_source("cold")
+        await self.arbiter.clear_source("price")
         for code in sorted(self._stormy):
             site = next(s for s in self.sites if s["code"] == code)
             await self.clients.toxiproxy.set_latency(site["proxy"], 0)

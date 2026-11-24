@@ -18,6 +18,10 @@ services:
 
   control:
     build: ./control
+    env_file:
+      # ENTSOE_API_TOKEN lives here; gitignored, never committed.
+      - path: .env
+        required: false
     environment:
       CSMS_ADMIN_URL: http://csms:9001
       TOXIPROXY_URL: http://toxiproxy:8474
@@ -25,6 +29,9 @@ services:
       SITES_FILE: /config/sites.json
       WEB_DIR: /web
       LEDGER_FILE: /data/ledger.jsonl
+      WORLD_DEFAULT: "true"
+      AUTOPILOT_DEFAULT: "true"
+      GRAFANA_URL: http://localhost:3000/d/truckroll-fleet
     volumes:
       - ./fleet/sites.json:/config/sites.json:ro
       - ./web:/web:ro

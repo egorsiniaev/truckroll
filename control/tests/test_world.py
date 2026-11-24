@@ -1,5 +1,6 @@
 import pytest
 
+from control.limits import LimitArbiter
 from control.world import (COLD_DERATE, STORM_LATENCY_MS, WorldEngine, active_stations, demand_share, solar_w,
                            weather_rules)
 
@@ -51,13 +52,17 @@ class Clients:
         self.simulator = self.csms = self.toxiproxy = Recorder()
 
 
+def engine(sites, clients):
+    return WorldEngine(sites, clients, LimitArbiter(clients.csms))
+
+
 def snap(site, n):
     return {"stations": [{"id": f"{site}-{i}", "site": site, "connected": True} for i in range(1, n + 1)]}
 
 
 async def test_disabled_engine_only_evaluates_rules():
     clients = Clients()
-    eng = WorldEngine([HUB], clients)
+    eng = engine([HUB], clients)
     assert await eng.tick(snap("A2-HUB", 2), {"A2-HUB": {"temp_c": 0, "gust_kmh": 80}}) == []
     assert clients.simulator.calls == []
     assert any(r.active for r in eng.rules)
@@ -66,12 +71,12 @@ async def test_disabled_engine_only_evaluates_rules():
 async def test_enabled_engine_derates_cold_dc_and_degrades_stormy_network_then_undoes(monkeypatch):
     monkeypatch.setattr("control.world.local_hour", lambda now=None: 17)  # highway profile 0.9
     clients = Clients()
-    eng = WorldEngine([HUB], clients)
+    eng = engine([HUB], clients)
     eng.enabled = True
     changes = await eng.tick(snap("A2-HUB", 2), {"A2-HUB": {"temp_c": 0, "gust_kmh": 80}})
 
     calls = clients.simulator.calls
-    assert ("limit", "A2-HUB-1", 150000 * COLD_DERATE) in calls
+    assert ("limit", "A2-HUB-1", round(150000 * COLD_DERATE)) in calls
     assert ("latency", "a2-hub", STORM_LATENCY_MS) in calls
     assert any("cold" in c for c in changes) and any("storm" in c for c in changes)
 
@@ -84,7 +89,7 @@ async def test_demand_turns_arrivals_off_outside_busy_hours(monkeypatch):
     monkeypatch.setattr("control.world.local_hour", lambda now=None: 3)  # office profile 0.0
     office = {**DEPOT, "code": "EHV-OFFICE", "demand": "office"}
     clients = Clients()
-    eng = WorldEngine([office], clients)
+    eng = engine([office], clients)
     eng.enabled = True
     changes = await eng.tick(snap("EHV-OFFICE", 3), {})
     assert clients.simulator.calls[0] == ("atg", ("EHV-OFFICE-1", "EHV-OFFICE-2", "EHV-OFFICE-3"), False)
@@ -93,3 +98,12 @@ async def test_demand_turns_arrivals_off_outside_busy_hours(monkeypatch):
     clients.simulator.calls.clear()
     await eng.disable()
     assert clients.simulator.calls[0][2] is True
+
+
+def test_price_rule_only_for_depot_and_when_expensive():
+    from control.world import price_rule
+    assert price_rule(HUB, {"available": True}) is None
+    hot = price_rule(DEPOT, {"available": True, "now_eur_mwh": 210.0, "expensive": True, "expensive_from_eur_mwh": 150})
+    calm = price_rule(DEPOT, {"available": True, "now_eur_mwh": 80.0, "expensive": False, "expensive_from_eur_mwh": 150})
+    assert hot.active and "top 20%" in hot.text
+    assert not calm.active and not price_rule(DEPOT, None).active

@@ -38,6 +38,7 @@ class Ctx:
     """What a scenario may touch: the clients, the site table, the current stations, and a seeded random."""
 
     clients: object
+    limits: object
     sites: dict[str, dict]
     stations: list[dict]
     rng: random.Random
@@ -97,10 +98,24 @@ def _overheat(c: Ctx) -> list[Step]:
         for conn in st["connectors"]:
             await cx.clients.simulator.set_status(st["id"], conn["id"], "Faulted", "HighTemperature")
 
+    async def refault(cx: Ctx) -> None:
+        # The heat problem is physical: after the remote reset it comes back.
+        await fault(cx)
+
     async def clear(cx: Ctx) -> None:
         await _clear_faults(cx)
 
-    return [Step(0, "power module overheats on one charger", fault), Step(240, "technician resets the charger", clear)]
+    return [Step(0, "power module overheats on one charger", fault),
+            Step(80, "still too hot: the fault returns after the reset", refault),
+            Step(240, "technician replaces the fan on site", clear)]
+
+
+def _lock_failure(c: Ctx) -> list[Step]:
+    async def fault(cx: Ctx) -> None:
+        st = cx.pick("lock", "UTR-RETAIL")[0]
+        await cx.clients.simulator.set_status(st["id"], st["connectors"][0]["id"], "Faulted", "ConnectorLockFailure")
+
+    return [Step(0, "connector lock jams on one retail charger", fault)]
 
 
 async def _clear_faults(c: Ctx) -> None:
@@ -142,8 +157,7 @@ def _congestion(c: Ctx) -> list[Step]:
         stations = cx.stations_at("AMS-DEPOT")
         per_station = cx.sites["AMS-DEPOT"]["cap_w"] * 0.5 / max(1, len(stations))
         cx.picked["limited"] = stations
-        for st in stations:
-            await cx.clients.csms.set_limit(st["id"], round(per_station))
+        await cx.limits.set_many("grid-operator", {st["id"]: per_station for st in stations})
 
     async def release(cx: Ctx) -> None:
         await _clear_limits(cx)
@@ -152,8 +166,7 @@ def _congestion(c: Ctx) -> list[Step]:
 
 
 async def _clear_limits(c: Ctx) -> None:
-    for st in c.picked.get("limited", []):
-        await c.clients.csms.set_limit(st["id"], None)
+    await c.limits.clear_source("grid-operator")
 
 
 # --- everything reconnects at once ----------------------------------------------
@@ -181,6 +194,8 @@ SCENARIOS: tuple[Scenario, ...] = (
              "network: weather-related uplink flapping at A2-HUB", 160, _storm, _clear_sites("A2-HUB")),
     Scenario("overheat", "Overheating charger", "One fast charger at A2-HUB reports HighTemperature and stops.",
              "hardware: power module overtemperature on a single charger", 250, _overheat, _clear_faults),
+    Scenario("lock-failure", "Jammed connector lock", "A connector lock jams at UTR-RETAIL; a remote reset frees it.",
+             "hardware: connector lock failure, fixed by remote reset", 120, _lock_failure, _clear_faults),
     Scenario("site-drop", "Depot offline", "The depot's internet line drops; all 20 chargers go dark.",
              "network: site uplink outage at AMS-DEPOT", 160, _site_drop, _clear_sites("AMS-DEPOT")),
     Scenario("crash-loop", "Firmware crash loop", "Three chargers at UTR-RETAIL got a bad update and keep rebooting.",
@@ -217,8 +232,9 @@ class Runner:
     """Runs one scenario at a time. time_scale < 1 speeds runs up for tests."""
 
     def __init__(self, clients, sites: list[dict], ledger: Ledger, on_event: Callable[[str, str], None],
-                 time_scale: float = 1.0, seed: int | None = None) -> None:
+                 time_scale: float = 1.0, seed: int | None = None, limits=None) -> None:
         self.clients = clients
+        self.limits = limits
         self.sites = {s["code"]: s for s in sites}
         self.ledger = ledger
         self.on_event = on_event
@@ -250,7 +266,7 @@ class Runner:
         if scenario is None:
             raise KeyError(scenario_id)
         self.current = scenario
-        self.ctx = Ctx(self.clients, self.sites, stations, self.rng)
+        self.ctx = Ctx(self.clients, self.limits, self.sites, stations, self.rng)
         self.started_at = time.monotonic()
         self.started_iso = _iso()
         self.done_steps = []

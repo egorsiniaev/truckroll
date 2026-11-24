@@ -65,6 +65,7 @@ async def ctx():
     clients = Clients(csms=FakeCsms(), toxiproxy=FakeToxi(), simulator=FakeSim(), weather=None)
     hub = Hub(sites=SITES, clients=clients, ledger_path=None)
     await hub.poll_once()
+    clients.toxiproxy.calls.clear()  # first poll runs the startup cleanup
     app = create_app(hub, web_dir=None, start_poller=False)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
         yield client, clients, hub
@@ -83,7 +84,7 @@ async def test_outage_disables_the_site_proxy_and_logs_event(ctx):
     res = await client.post("/api/sites/A2-HUB/outage", json={"on": True})
     assert res.status_code == 200
     assert clients.toxiproxy.calls == [("enabled", "a2-hub", False)]
-    assert hub.snapshot["events"][0]["text"] == "network outage started"
+    assert hub.snapshot["events"][0]["text"] == "operator started a network outage"
 
 
 async def test_latency_and_clear_chaos(ctx):
@@ -105,13 +106,18 @@ async def test_fault_is_injected_on_every_connector_then_cleared(ctx):
     ]
 
 
-async def test_limit_power_and_reset_are_forwarded(ctx):
+async def test_limit_power_and_reset_are_forwarded(ctx):  # noqa: D103
     client, clients, _ = ctx
     await client.post("/api/stations/A2-HUB-00001/limit", json={"watts": 75000})
     await client.post("/api/stations/A2-HUB-00001/reset")
     await client.post("/api/stations/A2-HUB-00001/power", json={"on": False})
     assert clients.csms.calls == [("limit", "A2-HUB-00001", 75000), ("reset", "A2-HUB-00001")]
+    assert hub_station(ctx)["limit_sources"] == {"operator": 75000}
     assert clients.simulator.calls == [("running", "A2-HUB-00001", False)]
+
+
+def hub_station(ctx):
+    return next(s for s in ctx[2].snapshot["stations"] if s["id"] == "A2-HUB-00001")
 
 
 @pytest.mark.parametrize("path,body", [
@@ -155,3 +161,17 @@ async def test_scenario_start_conflict_unknown_and_stop(ctx):
     assert (await client.post("/api/scenarios/storm-a2/start")).status_code == 409
     stopped = await client.post("/api/scenarios/stop")
     assert stopped.json()["result"] == {"running": None}
+
+
+async def test_snapshot_has_daylight_incidents_autopilot_and_grafana(ctx):
+    _, _, hub = ctx
+    snap = hub.snapshot
+    assert snap["daylight"]["phase"] in {"morning", "day", "evening", "night"}
+    assert snap["incidents"] == [] and snap["autopilot"]["enabled"] is False
+    assert "grafana_url" in snap
+
+
+async def test_autopilot_toggle(ctx):
+    client, _, hub = ctx
+    res = await client.post("/api/autopilot", json={"enabled": True})
+    assert res.json()["result"]["enabled"] is True

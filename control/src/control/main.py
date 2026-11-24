@@ -12,6 +12,7 @@ import uvicorn
 
 from control.app import Clients, Hub, create_app
 from control.clients import CsmsClient, SimulatorClient, ToxiproxyClient, WeatherClient
+from control.prices import PriceClient
 
 
 def load_sites(path: str) -> list[dict]:
@@ -36,10 +37,16 @@ def build_app():
         toxiproxy=ToxiproxyClient(http, os.environ.get("TOXIPROXY_URL", "http://toxiproxy:8474")),
         simulator=SimulatorClient(os.environ.get("SIMULATOR_UI_URL", "ws://simulator:8080")),
         weather=None if os.environ.get("WEATHER_ENABLED", "true") == "false" else WeatherClient(http),
+        prices=PriceClient(http, token) if (token := os.environ.get("ENTSOE_API_TOKEN")) else None,
     )
+    if clients.prices is None:
+        logging.getLogger(__name__).warning("ENTSOE_API_TOKEN not set: price data disabled")
     ledger = os.environ.get("LEDGER_FILE", "/data/ledger.jsonl")
+    flag = lambda name, default: os.environ.get(name, default).lower() == "true"  # noqa: E731
     hub = Hub(sites=load_sites(os.environ.get("SITES_FILE", "/config/sites.json")), clients=clients,
-              ledger_path=Path(ledger) if ledger else None)
+              ledger_path=Path(ledger) if ledger else None,
+              world_default=flag("WORLD_DEFAULT", "true"), autopilot_default=flag("AUTOPILOT_DEFAULT", "true"),
+              grafana_url=os.environ.get("GRAFANA_URL", "http://localhost:3000/d/truckroll-fleet"))
     web = os.environ.get("WEB_DIR", "/web")
     return create_app(hub, Path(web))
 

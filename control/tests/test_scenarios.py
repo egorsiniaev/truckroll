@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+from control.limits import LimitArbiter
 from control.scenarios import SCENARIOS, Ledger, Runner
 
 SITES = [{"code": c, "proxy": c.lower(), "cap_w": 200000} for c in ("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE")]
@@ -32,7 +33,7 @@ def runner(tmp_path):
     events = []
     clients = Clients()
     r = Runner(clients, SITES, Ledger(tmp_path / "ledger.jsonl"), lambda lvl, txt: events.append((lvl, txt)),
-               time_scale=0.001, seed=7)
+               time_scale=0.001, seed=7, limits=LimitArbiter(clients.csms))
     return r, clients, events, tmp_path / "ledger.jsonl"
 
 
