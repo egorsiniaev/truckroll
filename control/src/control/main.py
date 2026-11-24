@@ -37,7 +37,9 @@ def build_app():
         simulator=SimulatorClient(os.environ.get("SIMULATOR_UI_URL", "ws://simulator:8080")),
         weather=None if os.environ.get("WEATHER_ENABLED", "true") == "false" else WeatherClient(http),
     )
-    hub = Hub(sites=load_sites(os.environ.get("SITES_FILE", "/config/sites.json")), clients=clients)
+    ledger = os.environ.get("LEDGER_FILE", "/data/ledger.jsonl")
+    hub = Hub(sites=load_sites(os.environ.get("SITES_FILE", "/config/sites.json")), clients=clients,
+              ledger_path=Path(ledger) if ledger else None)
     web = os.environ.get("WEB_DIR", "/web")
     return create_app(hub, Path(web))
 

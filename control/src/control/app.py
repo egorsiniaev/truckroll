@@ -20,11 +20,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from control.clients import CsmsClient, SimulatorClient, ToxiproxyClient, UpstreamError, WeatherClient
+from control.scenarios import Ledger, Runner
 from control.state import build_snapshot, detect_events, group_events
+from control.world import WorldEngine, solar_w
 
 log = logging.getLogger(__name__)
 
 POLL_S = 2.0
+WORLD_EVERY_S = 60
 WEATHER_EVERY_S = 600
 STREAM_EVERY_S = 2.0
 MAX_EVENTS = 60
@@ -56,6 +59,14 @@ class Hub:
     weather: dict = field(default_factory=dict)
     weather_at: float = 0.0
     weather_error: str | None = None
+    ledger_path: Path | None = None
+    world: WorldEngine = field(init=False)
+    runner: Runner = field(init=False)
+    world_at: float = 0.0
+
+    def __post_init__(self) -> None:
+        self.world = WorldEngine(self.sites, self.clients)
+        self.runner = Runner(self.clients, self.sites, Ledger(self.ledger_path), lambda lvl, txt: self.add_event(lvl, txt))
 
     def add_event(self, level: str, text: str, site: str | None = None, station: str | None = None) -> None:
         self.events.appendleft({"time": _now_iso(), "level": level, "text": text, "site": site, "station": station})
@@ -90,10 +101,23 @@ class Hub:
         if self.weather_error:
             errors["weather"] = self.weather_error
         snap = build_snapshot(self.sites, stations, proxies, self.weather, errors, _now_iso())
+        for site in snap["sites"]:
+            site["solar_w"] = solar_w(site, site.get("weather"))
         if self.snapshot.get("stations"):
             for ev in group_events(detect_events(self.snapshot["stations"], snap["stations"])):
                 self.add_event(ev["level"], ev["text"], ev["site"], ev["station"])
-        self.snapshot = {**snap, "events": list(self.events)}
+        if stations and time.monotonic() - self.world_at >= WORLD_EVERY_S:
+            await self.tick_world(snap)
+        self.snapshot = {**snap, "events": list(self.events), "world": self.world.status(),
+                         "scenario": self.runner.status()}
+
+    async def tick_world(self, snap: dict) -> None:
+        self.world_at = time.monotonic()
+        try:
+            for text in await self.world.tick(snap, self.weather):
+                self.add_event("info", f"real world: {text}")
+        except UpstreamError as exc:
+            self.add_event("error", f"real-world mode: {exc}")
 
     async def run(self) -> None:
         while True:
@@ -122,6 +146,10 @@ class FaultRequest(BaseModel):
 
 class PowerRequest(BaseModel):
     on: bool
+
+
+class WorldRequest(BaseModel):
+    enabled: bool
 
 
 def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> FastAPI:
@@ -166,7 +194,36 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
 
     @app.get("/api/meta")
     async def meta():
-        return {"sites": hub.sites, "error_codes": ERROR_CODES}
+        return {"sites": hub.sites, "error_codes": ERROR_CODES, "scenarios": hub.runner.catalog()}
+
+    @app.post("/api/world")
+    async def world(body: WorldRequest):
+        async def apply():
+            if body.enabled:
+                hub.world.enabled = True
+                await hub.tick_world(hub.snapshot)
+            else:
+                await hub.world.disable()
+
+        text = "real-world mode on: local time and weather now drive the fleet" if body.enabled else "real-world mode off"
+        return await act(apply(), text)
+
+    @app.post("/api/scenarios/{scenario_id}/start")
+    async def start_scenario(scenario_id: str):
+        try:
+            status = hub.runner.start(scenario_id, hub.snapshot.get("stations", []))
+        except KeyError:
+            raise HTTPException(404, f"unknown scenario {scenario_id}") from None
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from None
+        await hub.poll_once()
+        return {"ok": True, "result": status}
+
+    @app.post("/api/scenarios/stop")
+    async def stop_scenario():
+        await hub.runner.stop()
+        await hub.poll_once()
+        return {"ok": True, "result": hub.runner.status()}
 
     @app.get("/api/stream")
     async def stream(request: Request):

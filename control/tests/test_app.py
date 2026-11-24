@@ -56,11 +56,14 @@ class FakeSim:
     async def set_running(self, sid, running):
         self.calls.append(("running", sid, running))
 
+    async def set_atg_many(self, ids, running):
+        self.calls.append(("atg", tuple(ids), running))
+
 
 @pytest.fixture
 async def ctx():
     clients = Clients(csms=FakeCsms(), toxiproxy=FakeToxi(), simulator=FakeSim(), weather=None)
-    hub = Hub(sites=SITES, clients=clients)
+    hub = Hub(sites=SITES, clients=clients, ledger_path=None)
     await hub.poll_once()
     app = create_app(hub, web_dir=None, start_poller=False)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
@@ -132,3 +135,23 @@ async def test_upstream_failure_is_502_and_logged(ctx):
     res = await client.post("/api/sites/A2-HUB/outage", json={"on": True})
     assert res.status_code == 502
     assert hub.events[0]["level"] == "error"
+
+
+async def test_meta_lists_scenarios_and_world_toggle_works(ctx):
+    client, clients, hub = ctx
+    meta = (await client.get("/api/meta")).json()
+    assert {s["id"] for s in meta["scenarios"]} >= {"storm-a2", "overheat"}
+    assert (await client.post("/api/world", json={"enabled": True})).status_code == 200
+    assert hub.snapshot["world"]["enabled"] is True
+    assert (await client.post("/api/world", json={"enabled": False})).status_code == 200
+    assert hub.snapshot["world"]["enabled"] is False
+
+
+async def test_scenario_start_conflict_unknown_and_stop(ctx):
+    client, clients, hub = ctx
+    assert (await client.post("/api/scenarios/nope/start")).status_code == 404
+    res = await client.post("/api/scenarios/site-drop/start")
+    assert res.json()["result"]["running"]["id"] == "site-drop"
+    assert (await client.post("/api/scenarios/storm-a2/start")).status_code == 409
+    stopped = await client.post("/api/scenarios/stop")
+    assert stopped.json()["result"] == {"running": None}

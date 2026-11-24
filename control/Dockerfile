@@ -7,7 +7,7 @@ COPY src ./src
 RUN uv sync --frozen --no-dev
 
 FROM python:3.12-slim-bookworm
-RUN useradd --system --uid 10001 control
+RUN useradd --system --uid 10001 control && mkdir /data && chown control /data
 WORKDIR /app
 COPY --from=build /app /app
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
