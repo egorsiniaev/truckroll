@@ -83,3 +83,14 @@ async def test_only_one_scenario_at_a_time(runner):
 async def test_unknown_scenario(runner):
     with pytest.raises(KeyError):
         runner[0].start("nope", STATIONS)
+
+
+async def test_status_reports_icon_sites_and_picked_stations(runner):
+    r, *_ = runner
+    r.time_scale = 1.0
+    r.start("overheat", STATIONS)
+    await asyncio.sleep(0.05)
+    run = r.status()["running"]
+    assert run["icon"] == "🌡️" and run["sites"] == ["A2-HUB"] and len(run["stations"]) == 1
+    await r.stop()
+    assert all(s["icon"] for s in r.catalog())

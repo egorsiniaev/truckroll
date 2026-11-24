@@ -18,20 +18,28 @@ STORM_LATENCY_MS = 1500
 FLAT_SHARE = 0.6
 PRICE_DERATE = 0.5  # flexible depot fleet charges at half power in the day's most expensive slots
 
-# Share of stations with arrivals, by local hour range [start, end).
-DEMAND_PROFILES: dict[str, tuple[tuple[int, int, float], ...]] = {
-    "depot": ((0, 6, 0.9), (6, 9, 0.3), (9, 17, 0.2), (17, 20, 0.6), (20, 24, 0.9)),
-    "retail": ((0, 8, 0.05), (8, 10, 0.3), (10, 18, 0.8), (18, 21, 0.6), (21, 24, 0.1)),
-    "highway": ((0, 6, 0.15), (6, 10, 0.6), (10, 16, 0.5), (16, 20, 0.9), (20, 24, 0.3)),
-    "office": ((0, 7, 0.0), (7, 9, 0.8), (9, 16, 0.6), (16, 18, 0.3), (18, 24, 0.05)),
+# Demand share by local hour range [start, end), with the reason a person would give.
+DEMAND_PROFILES: dict[str, tuple[tuple[int, int, float, str], ...]] = {
+    "depot": ((0, 6, 0.9, "overnight fleet charging"), (6, 9, 0.3, "vans leaving for routes"),
+              (9, 17, 0.2, "vans out on routes"), (17, 20, 0.6, "vans returning"), (20, 24, 0.9, "overnight fleet charging")),
+    "retail": ((0, 8, 0.05, "store closed"), (8, 10, 0.3, "early shoppers"), (10, 18, 0.8, "shopping hours"),
+               (18, 21, 0.6, "evening shoppers"), (21, 24, 0.1, "store closed")),
+    "highway": ((0, 6, 0.15, "night traffic"), (6, 10, 0.6, "morning commute"), (10, 16, 0.5, "daytime traffic"),
+                (16, 20, 0.9, "evening rush hour"), (20, 24, 0.3, "late traffic")),
+    "office": ((0, 7, 0.0, "office closed"), (7, 9, 0.8, "staff arriving"), (9, 16, 0.6, "workday"),
+               (16, 18, 0.3, "staff leaving"), (18, 24, 0.05, "office closed")),
 }
 
 
-def demand_share(profile: str, hour: int) -> float:
-    for start, end, share in DEMAND_PROFILES.get(profile, ()):
+def demand_entry(profile: str, hour: int) -> tuple[float, str]:
+    for start, end, share, reason in DEMAND_PROFILES.get(profile, ()):
         if start <= hour < end:
-            return share
-    return 1.0
+            return share, reason
+    return 1.0, "steady demand"
+
+
+def demand_share(profile: str, hour: int) -> float:
+    return demand_entry(profile, hour)[0]
 
 
 def solar_w(site: Mapping, weather: Mapping | None) -> float:
@@ -99,6 +107,12 @@ class WorldEngine:
             return {s["code"]: FLAT_SHARE for s in self.sites}
         hour = local_hour()
         return {s["code"]: demand_share(s.get("demand", ""), hour) for s in self.sites}
+
+    def reasons(self) -> dict[str, str]:
+        if not self.enabled:
+            return {s["code"]: "test demand (real-world mode off)" for s in self.sites}
+        hour = local_hour()
+        return {s["code"]: demand_entry(s.get("demand", ""), hour)[1] for s in self.sites}
 
     def status(self) -> dict:
         return {

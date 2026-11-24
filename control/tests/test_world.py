@@ -94,3 +94,11 @@ def test_price_rule_only_for_depot_and_when_expensive():
     calm = price_rule(DEPOT, {"available": True, "now_eur_mwh": 80.0, "expensive": False, "expensive_from_eur_mwh": 150})
     assert hot.active and "top 20%" in hot.text
     assert not calm.active and not price_rule(DEPOT, None).active
+
+
+def test_demand_reasons_explain_the_hour(monkeypatch):
+    monkeypatch.setattr("control.world.local_hour", lambda now=None: 17)
+    eng = engine([HUB], Clients())
+    assert eng.reasons() == {"A2-HUB": "test demand (real-world mode off)"}
+    eng.enabled = True
+    assert eng.reasons() == {"A2-HUB": "evening rush hour"}

@@ -31,6 +31,8 @@ class Scenario:
     duration_s: float
     plan: Callable[["Ctx"], list[Step]]
     cleanup: Callable[["Ctx"], Awaitable[None]]
+    icon: str = "⚠️"
+    sites: tuple[str, ...] = ()  # where it happens; picked stations are added at run time
 
 
 @dataclass
@@ -191,19 +193,21 @@ async def _noop(c: Ctx) -> None:
 
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario("storm-a2", "Storm at A2-HUB", "Strong gusts make the hub's uplink flap for a couple of minutes.",
-             "network: weather-related uplink flapping at A2-HUB", 160, _storm, _clear_sites("A2-HUB")),
+             "network: weather-related uplink flapping at A2-HUB", 160, _storm, _clear_sites("A2-HUB"), "⛈️", ("A2-HUB",)),
     Scenario("overheat", "Overheating charger", "One fast charger at A2-HUB reports HighTemperature and stops.",
-             "hardware: power module overtemperature on a single charger", 250, _overheat, _clear_faults),
+             "hardware: power module overtemperature on a single charger", 250, _overheat, _clear_faults, "🌡️", ("A2-HUB",)),
     Scenario("lock-failure", "Jammed connector lock", "A connector lock jams at UTR-RETAIL; a remote reset frees it.",
-             "hardware: connector lock failure, fixed by remote reset", 120, _lock_failure, _clear_faults),
+             "hardware: connector lock failure, fixed by remote reset", 120, _lock_failure, _clear_faults, "🔒", ("UTR-RETAIL",)),
     Scenario("site-drop", "Depot offline", "The depot's internet line drops; all 20 chargers go dark.",
-             "network: site uplink outage at AMS-DEPOT", 160, _site_drop, _clear_sites("AMS-DEPOT")),
+             "network: site uplink outage at AMS-DEPOT", 160, _site_drop, _clear_sites("AMS-DEPOT"), "📡", ("AMS-DEPOT",)),
     Scenario("crash-loop", "Firmware crash loop", "Three chargers at UTR-RETAIL got a bad update and keep rebooting.",
-             "firmware: crash loop after update on 3 chargers", 190, _crash_loop, _restart_picked),
+             "firmware: crash loop after update on 3 chargers", 190, _crash_loop, _restart_picked, "🔁", ("UTR-RETAIL",)),
     Scenario("congestion", "Grid congestion request", "The grid operator asks the depot to halve its load for 3 minutes.",
-             "expected: grid operator congestion request (not a fault)", 190, _congestion, _clear_limits),
+             "expected: grid operator congestion request (not a fault)", 190, _congestion, _clear_limits, "⚡", ("AMS-DEPOT",)),
     Scenario("reconnect-storm", "Reconnect storm", "A 20-second core network blip; every station reconnects at once.",
-             "network: core blip followed by mass reconnect", 60, _reconnect_storm, _clear_sites(*("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE"))),
+             "network: core blip followed by mass reconnect", 60, _reconnect_storm,
+             _clear_sites(*("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE")), "🌐",
+             ("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE")),
 )
 
 
@@ -249,13 +253,15 @@ class Runner:
         self.run_id = ""
 
     def catalog(self) -> list[dict]:
-        return [{"id": s.id, "title": s.title, "description": s.description, "duration_s": s.duration_s}
-                for s in SCENARIOS]
+        return [{"id": s.id, "title": s.title, "description": s.description, "duration_s": s.duration_s,
+                 "icon": s.icon} for s in SCENARIOS]
 
     def status(self) -> dict:
         if not self.current:
             return {"running": None}
+        stations = sorted({st["id"] for group in self.ctx.picked.values() for st in group}) if self.ctx else []
         return {"running": {"id": self.current.id, "title": self.current.title, "run_id": self.run_id,
+                            "icon": self.current.icon, "sites": list(self.current.sites), "stations": stations,
                             "elapsed_s": round(time.monotonic() - self.started_at, 1),
                             "duration_s": self.current.duration_s, "steps_done": self.done_steps[-5:]}}
 

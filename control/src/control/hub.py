@@ -160,9 +160,15 @@ class Hub:
             self.economics.accrue(snap["sites"], self.prices, min(dt, 30.0), datetime.now(UTC))
         money = self.economics.summary()
         demand = self.demand.status()
+        shares, reasons = self.world.shares(), self.world.reasons()
+        tariffs = self.economics.tariffs(self.prices)
+        by_code = {s["code"]: s for s in self.sites}
         for site in snap["sites"]:
-            site["economics"] = money["sites"].get(site["code"], {})
-            site["demand"] = demand.get(site["code"], {})
+            code = site["code"]
+            factor = demand_factor(by_code[code], tariffs[code])
+            site["economics"] = money["sites"].get(code, {})
+            site["demand"] = {**demand.get(code, {}), "share": shares.get(code), "reason": reasons.get(code),
+                              "price_factor": factor}
             site["rules"] = [r.__dict__ for r in self.world.rules if r.site == site["code"]]
             site["controller"] = self.controller.status().get(site["code"])
         for st in snap["stations"]:
