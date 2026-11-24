@@ -16,7 +16,23 @@
     "poolMaxSize": 8
   },
   "uiServer": {
-    "enabled": false
+    "enabled": true,
+    "type": "ws",
+    "options": {
+      "host": "::",
+      "port": 8080
+    },
+    "accessPolicy": {
+      "allowedHosts": [
+        "simulator",
+        "localhost",
+        "127.0.0.1"
+      ],
+      "requireTlsForNonLoopback": false
+    },
+    "authentication": {
+      "enabled": false
+    }
   },
   "stationTemplateUrls": [
     {

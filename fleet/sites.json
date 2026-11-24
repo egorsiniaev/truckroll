@@ -1,0 +1,50 @@
+[
+  {
+    "code": "AMS-DEPOT",
+    "kind": "logistics depot",
+    "stations": 20,
+    "connectors": 1,
+    "power_w": 22080,
+    "current": "AC",
+    "lat": 52.401,
+    "lon": 4.817,
+    "cap_w": 250000,
+    "proxy": "ams-depot"
+  },
+  {
+    "code": "UTR-RETAIL",
+    "kind": "retail parking",
+    "stations": 12,
+    "connectors": 2,
+    "power_w": 22080,
+    "current": "AC",
+    "lat": 52.093,
+    "lon": 5.118,
+    "cap_w": 200000,
+    "proxy": "utr-retail"
+  },
+  {
+    "code": "A2-HUB",
+    "kind": "highway fast-charging hub",
+    "stations": 8,
+    "connectors": 2,
+    "power_w": 150000,
+    "current": "DC",
+    "lat": 51.972,
+    "lon": 5.094,
+    "cap_w": 600000,
+    "proxy": "a2-hub"
+  },
+  {
+    "code": "EHV-OFFICE",
+    "kind": "office campus",
+    "stations": 10,
+    "connectors": 1,
+    "power_w": 11040,
+    "current": "AC",
+    "lat": 51.441,
+    "lon": 5.478,
+    "cap_w": 80000,
+    "proxy": "ehv-office"
+  }
+]

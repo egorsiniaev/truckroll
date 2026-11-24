@@ -27,13 +27,20 @@ class Site:
     model: str
     session_s: tuple[int, int]
     gap_s: tuple[int, int]
+    lat: float
+    lon: float
+    cap_kw: int  # grid connection cap; below installed power on purpose, so the controller has work to do
 
 
 SITES = (
-    Site("AMS-DEPOT", "logistics depot", 20, 1, 22_080, "AC", "Truckroll Sim", "AC22-DEPOT", (900, 2400), (120, 900)),
-    Site("UTR-RETAIL", "retail parking", 12, 2, 22_080, "AC", "Truckroll Sim", "AC22-DUO", (600, 1800), (60, 600)),
-    Site("A2-HUB", "highway fast-charging hub", 8, 2, 150_000, "DC", "Truckroll Sim", "DC150", (600, 1500), (60, 400)),
-    Site("EHV-OFFICE", "office campus", 10, 1, 11_040, "AC", "Truckroll Sim", "AC11-OFFICE", (1800, 3600), (300, 1800)),
+    Site("AMS-DEPOT", "logistics depot", 20, 1, 22_080, "AC", "Truckroll Sim", "AC22-DEPOT", (900, 2400), (120, 900),
+         52.401, 4.817, 250),
+    Site("UTR-RETAIL", "retail parking", 12, 2, 22_080, "AC", "Truckroll Sim", "AC22-DUO", (600, 1800), (60, 600),
+         52.093, 5.118, 200),
+    Site("A2-HUB", "highway fast-charging hub", 8, 2, 150_000, "DC", "Truckroll Sim", "DC150", (600, 1500), (60, 400),
+         51.972, 5.094, 600),
+    Site("EHV-OFFICE", "office campus", 10, 1, 11_040, "AC", "Truckroll Sim", "AC11-OFFICE", (1800, 3600), (300, 1800),
+         51.441, 5.478, 80),
 )
 
 
@@ -98,7 +105,14 @@ def simulator_config() -> dict:
         "supervisionUrlDistribution": "round-robin",
         "log": {"file": "/dev/stdout", "errorFile": "/dev/stderr", "console": False, "rotate": False},
         "worker": {"processType": "workerSet", "elementsPerWorker": 10, "poolMinSize": 2, "poolMaxSize": 8},
-        "uiServer": {"enabled": False},
+        # Internal control API for the control service; reachable only inside the compose network.
+        "uiServer": {
+            "enabled": True,
+            "type": "ws",
+            "options": {"host": "::", "port": 8080},
+            "accessPolicy": {"allowedHosts": ["simulator", "localhost", "127.0.0.1"], "requireTlsForNonLoopback": False},
+            "authentication": {"enabled": False},
+        },
         "stationTemplateUrls": [{"file": template_file(s), "numberOfStations": s.stations} for s in SITES],
     }
 
@@ -107,6 +121,14 @@ def toxiproxy_config() -> list[dict]:
     return [
         {"name": s.code.lower(), "listen": f"0.0.0.0:{proxy_port(i)}", "upstream": CSMS_UPSTREAM, "enabled": True}
         for i, s in enumerate(SITES)
+    ]
+
+
+def sites_metadata() -> list[dict]:
+    return [
+        {"code": s.code, "kind": s.kind, "stations": s.stations, "connectors": s.connectors, "power_w": s.power_w,
+         "current": s.current, "lat": s.lat, "lon": s.lon, "cap_w": s.cap_kw * 1000, "proxy": s.code.lower()}
+        for s in SITES
     ]
 
 
@@ -119,6 +141,7 @@ def main() -> None:
     write(OUT / "config.json", simulator_config())
     write(OUT / "idtags.json", ID_TAGS)
     write(OUT / "toxiproxy.json", toxiproxy_config())
+    write(OUT / "sites.json", sites_metadata())
     for i, site in enumerate(SITES):
         write(OUT / "station-templates" / template_file(site), template(site, i))
     total = sum(s.stations for s in SITES)
