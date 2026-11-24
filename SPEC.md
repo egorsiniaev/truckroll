@@ -14,7 +14,7 @@ testing, an AI agent that triages incidents, and CRA evidence generated in CI."
 [SAP simulator: 50 stations] --toxiproxy-----+--> [CSMS (Python, ocpp lib)] --OTel--> Prometheus / Loki / Grafana
                                                           ^                                   |
                                                           |  OCPP commands (approval gated)   v alerts
-                                                          +------------- [Triage agent (Claude API)]
+                                                          +------------- [Triage agent (Gemini API)]
                                                                            drafts: incident summary, post-mortem,
                                                                            CRA/NIS2 24h early warning
 ```
@@ -52,7 +52,7 @@ OpenEVSE). Use 1.6J for the device; 2.0.1 is a stretch goal. Build with Platform
 | CSMS (backend) | Own thin service on [mobilityhouse/ocpp](https://github.com/mobilityhouse/ocpp) (Python) | ~300 lines; you own the telemetry. Alternatives if you don't want to write it: SteVe (Java, 1.6) or [CitrineOS](https://lfenergy.org/projects/citrineos/) (LF Energy, 2.0.1 + OCPI) |
 | Network chaos | Toxiproxy between simulator and CSMS | Latency, dropped sockets, flapping sites |
 | Telemetry | OpenTelemetry collector, Prometheus, Loki, Grafana | One `docker compose up` |
-| Triage agent | Claude API with tools: query Prometheus/Loki, send `TriggerMessage` / `Reset` | Commands need a human click; read-only by default |
+| Triage agent | Gemini API with tools: query Prometheus/Loki, send `TriggerMessage` / `Reset` | Commands need a human click; read-only by default |
 | CRA in CI | GitHub Actions: Syft (CycloneDX SBOM), Grype or OSV-Scanner, `SECURITY.md` + CVD policy, signed firmware | Plus a technical-file skeleton generated per release |
 
 ## SLOs and incidents to script

@@ -24,7 +24,7 @@ HOME (outbound only, no open ports)          HETZNER (public via Caddy, TLS)
 - Hetzner runs everything except the device. The device dials out; home stays closed.
 - Grafana and admin APIs stay private (Tailscale/WireGuard). The public gets a read-only API plus a
   rate-limited, fixed-menu incident trigger.
-- Secrets (ENTSO-E token, Anthropic key, OCPP passwords) from env vars on the server, never in git.
+- Secrets (ENTSO-E token, Gemini key, OCPP passwords) from env vars on the server, never in git.
 
 ## The device (make it worth watching)
 
@@ -101,6 +101,6 @@ recorded clips; site battery and upstream PRs were never in.
 ## Risks
 
 - **Parts shipping late:** software runs first; the device slots in when parts arrive.
-- **Public page abuse:** fixed incident menu, rate limits, daily Claude API spend cap, replay fallback.
+- **Public page abuse:** fixed incident menu, rate limits, daily Gemini API spend cap, replay fallback.
 - **Agent cost:** cap tokens per incident; log cost per triage.
 - **Scope creep from the energy side:** one controller, caps + prices + solar only.
