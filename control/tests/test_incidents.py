@@ -57,6 +57,7 @@ async def test_fault_reset_fixes_it_after_a_watch_period():
     [inc] = m.snapshot()
     assert inc["status"] == "recovered" and "no truck roll needed" in inc["timeline"][-1]["text"]
     assert [e["type"] for e in inc["timeline"]] == ["detected", "response", "response", "update", "recovered"]
+    assert [e["short"] for e in inc["timeline"]] == ["fault", "reset planned", "soft reset", "watching", "fixed remotely"]
 
 
 async def test_fault_that_returns_while_watching_escalates_the_same_incident():

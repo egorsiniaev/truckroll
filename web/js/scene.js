@@ -312,7 +312,7 @@ export function updateScene(snapshot, selected) {
     const d = s.demand || {};
     const tariff = s.economics?.tariff_eur_kwh;
     const priceEffect = d.price_factor != null && d.price_factor < 0.95 ? ` −${Math.round((1 - d.price_factor) * 100)}%${NB}price` : "";
-    r.label.demandLine.textContent = `${d.reason ?? "–"} · ${Math.round(d.arrivals_per_hour ?? 0)} cars/h${priceEffect}${tariff != null ? ` · €${tariff.toFixed(2)}/kWh` : ""}`;
+    r.label.demandLine.textContent = `${d.reason ?? "–"} · ${Math.round(d.arrivals_per_hour ?? 0)} cars/h${priceEffect}${tariff != null ? ` · €${tariff.toFixed(2)}` : ""}`;
     r.queueText.textContent = queue ? `${queue} waiting · ${d.reason ?? ""}` : "";
     r.queueCars.forEach((car, q) => car.g.classList.toggle("more", q === QUEUE_SLOTS - 1 && queue > QUEUE_SLOTS));
     const siteOpen = open.filter((i) => i.site === code).length;

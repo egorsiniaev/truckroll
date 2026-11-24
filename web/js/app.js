@@ -150,6 +150,11 @@ const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit",
 const ACTOR = { system: "", "auto-rule": "auto rule", operator: "operator", scenario: "scenario" };
 const STEP = { detected: "What", response: "Response", update: "Update", recovered: "Recovered" };
 
+function incidentAge(i) {
+  if (i.status === "recovered") return `fixed in ${Math.max(1, Math.round(i.ttr_s / 60))}${NB}min`;
+  return `${i.status === "monitoring" ? "watching · " : ""}${Math.max(0, Math.round(i.age_s / 60))}${NB}min`;
+}
+
 function renderFeed() {
   const incidents = snapshot.incidents || [];
   const open = incidents.filter((i) => i.status === "open");
@@ -160,16 +165,17 @@ function renderFeed() {
   if (!incidents.length) {
     list.innerHTML = `<li class="muted">No incidents yet. Random scenarios start one every 5 to&nbsp;10&nbsp;minutes.</li>`;
   } else {
-    list.innerHTML = incidents.slice(0, 15).map((i) => {
-      const active = i.status !== "recovered";
-      const isOpen = active || expanded === i.id;
-      const age = active ? `${i.status === "monitoring" ? "monitoring · " : ""}${Math.round(i.age_s / 60)}${NB}min` : `fixed in ${Math.round(i.ttr_s / 60) || "<1"}${NB}min`;
-      const steps = isOpen ? `<ul>${i.timeline.map((t) => `<li class="${t.type}"><b>${STEP[t.type] ?? t.type}</b><span>${esc(t.text)} <em>${fmtTime(t.time)}${ACTOR[t.actor] ? ` · ${ACTOR[t.actor]}` : ""}</em></span></li>`).join("")}</ul>` : "";
-      return `<li class="inc ${i.severity} ${i.status}" data-inc="${esc(i.id)}"><div class="inc-title"><span>${esc(i.title)}</span><small>${age}</small></div>${steps}</li>`;
+    // One line per incident: what, the chain of steps, how long. Click a line for the full timeline.
+    list.innerHTML = incidents.slice(0, 12).map((i) => {
+      const chain = i.timeline.map((t) => `<span class="step ${t.type}">${esc(t.short ?? t.type)}</span>`).join('<span class="arrow">→</span>');
+      const steps = expanded === i.id ? `<ol class="steps">${i.timeline.map((t) => `<li class="${t.type}" title="${esc(t.text)}">
+          <time>${fmtTime(t.time)}</time><b>${STEP[t.type] ?? t.type}</b><span>${esc(t.text)}</span><em>${ACTOR[t.actor] ?? ""}</em></li>`).join("")}</ol>` : "";
+      return `<li class="inc-row ${i.severity} ${i.status} ${expanded === i.id ? "open" : ""}" data-inc="${esc(i.id)}">
+        <div class="line"><i class="sev"></i><b class="title">${esc(i.title)}</b><span class="chain">${chain}</span><small>${incidentAge(i)}</small></div>${steps}</li>`;
     }).join("");
-    list.querySelectorAll("[data-inc]").forEach((li) => {
-      li.onclick = () => {
-        const inc = incidents.find((x) => x.id === li.dataset.inc);
+    list.querySelectorAll("[data-inc] > .line").forEach((line) => {
+      line.onclick = () => {
+        const inc = incidents.find((x) => x.id === line.parentElement.dataset.inc);
         expanded = expanded === inc.id ? null : inc.id;
         if (inc.stations.length === 1) ctx.select({ type: "station", id: inc.stations[0] });
         else ctx.select({ type: "site", id: inc.site });
