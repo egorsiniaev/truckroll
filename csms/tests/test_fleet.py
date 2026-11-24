@@ -1,0 +1,70 @@
+from csms.fleet import FleetStore, site_of
+
+
+def test_site_is_station_id_without_trailing_number():
+    assert site_of("AMS-DEPOT-00007") == "AMS-DEPOT"
+    assert site_of("DESK-01") == "DESK"
+    assert site_of("lonely") == "lonely"
+
+
+def test_status_update_returns_new_snapshot_and_leaves_old_one_untouched():
+    fleet = FleetStore()
+    fleet.connect("AMS-DEPOT-00001", now=1.0)
+    before = fleet.get("AMS-DEPOT-00001")
+
+    fleet.set_status("AMS-DEPOT-00001", connector_id=1, status="Charging", error_code="NoError", now=2.0)
+
+    after = fleet.get("AMS-DEPOT-00001")
+    assert after.connectors[1].status == "Charging"
+    assert 1 not in before.connectors
+    assert after.last_seen == 2.0
+
+
+def test_transaction_lifecycle_tracks_connector():
+    fleet = FleetStore()
+    fleet.connect("HWY-A2-00001", now=0.0)
+
+    tx_id = fleet.start_transaction("HWY-A2-00001", connector_id=2, now=1.0)
+    assert fleet.get("HWY-A2-00001").connectors[2].transaction_id == tx_id
+
+    station_id = fleet.stop_transaction(tx_id, now=2.0)
+    assert station_id == "HWY-A2-00001"
+    assert fleet.get("HWY-A2-00001").connectors[2].transaction_id is None
+    assert fleet.get("HWY-A2-00001").connectors[2].power_w == 0.0
+
+
+def test_stop_of_unknown_transaction_returns_none():
+    assert FleetStore().stop_transaction(999, now=1.0) is None
+
+
+def test_stale_disconnect_does_not_mark_reconnected_station_offline():
+    fleet = FleetStore()
+    old = fleet.connect("UTR-RETAIL-00001", now=1.0)
+    new = fleet.connect("UTR-RETAIL-00001", now=2.0)
+
+    fleet.disconnect("UTR-RETAIL-00001", token=old)
+    assert fleet.get("UTR-RETAIL-00001").connected is True
+
+    fleet.disconnect("UTR-RETAIL-00001", token=new)
+    assert fleet.get("UTR-RETAIL-00001").connected is False
+
+
+def test_meter_values_update_power_and_energy():
+    fleet = FleetStore()
+    fleet.connect("DESK-01", now=0.0)
+    fleet.record_meter("DESK-01", connector_id=1, power_w=7400.0, energy_wh=1234.0, now=5.0)
+
+    connector = fleet.get("DESK-01").connectors[1]
+    assert connector.power_w == 7400.0
+    assert connector.energy_wh == 1234.0
+
+
+def test_meter_values_keep_previous_reading_when_one_is_missing():
+    fleet = FleetStore()
+    fleet.connect("DESK-01", now=0.0)
+    fleet.record_meter("DESK-01", connector_id=1, power_w=100.0, energy_wh=10.0, now=1.0)
+    fleet.record_meter("DESK-01", connector_id=1, power_w=None, energy_wh=20.0, now=2.0)
+
+    connector = fleet.get("DESK-01").connectors[1]
+    assert connector.power_w == 100.0
+    assert connector.energy_wh == 20.0
