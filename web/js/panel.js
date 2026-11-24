@@ -5,6 +5,8 @@ const NB = " ";
 export const kw = (w) => `${(w / 1000).toFixed(1)}${NB}kW`;
 const kwh = (wh) => `${(wh / 1000).toFixed(1)}${NB}kWh`;
 const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
+// Uptime lives in the high 90s; whole percent would show 99.6 % as 100 %.
+const upct = (x) => (x == null ? "–" : `${(x * 100).toFixed(x >= 0.995 && x < 1 ? 2 : 1)}%`);
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const LATENCIES = [0, 500, 2000, 5000];
 const STATUS_CLASS = { Available: "ok", Preparing: "warn", Finishing: "warn", Charging: "info", SuspendedEV: "info",
@@ -78,6 +80,25 @@ function rulesList(rules) {
   return `<ul class="rules">${rules.map((r) => `<li class="${r.active ? "active" : "muted"}">${r.active ? "● active:" : "○ standby:"} ${esc(r.text)}</li>`).join("")}</ul>`;
 }
 
+const BASE_TARIFF = { depot: 0.32, retail: 0.49, highway: 0.69, office: 0.39 };
+
+function tariffNote(site, money) {
+  const base = BASE_TARIFF[site.profile];
+  if (!base || money.tariff_eur_kwh == null) return "";
+  const d = money.tariff_eur_kwh / base - 1;
+  if (Math.abs(d) < 0.005) return `<span class="muted">(base)</span>`;
+  return d > 0 ? `<span class="warn">(+${Math.round(d * 100)}%, price spike)</span>` : `<span class="ok">(−${Math.round(-d * 100)}%, cheap power or&nbsp;solar)</span>`;
+}
+
+function batterySection(b) {
+  if (!b) return "";
+  const cls = b.mode === "charging" ? "info" : b.mode === "discharging" ? "warn" : "muted";
+  return `<h4>Battery</h4>
+    <div class="grid2">${stat(`${Math.round(b.soc * 100)}%`, `${b.soc_kwh} of ${b.capacity_kwh}${NB}kWh stored`)}
+    ${stat(`<i class="val ${cls}">${b.mode === "charging" ? "+" : ""}${(b.power_w / 1000).toFixed(0)}${NB}kW</i>`, `${esc(b.mode)}, max ${b.power_kw_max}${NB}kW`)}</div>
+    <p class="meta">${esc(b.reason)}. Charges from spare solar and&nbsp;from the&nbsp;grid in&nbsp;the&nbsp;day’s cheapest quarter (only within the&nbsp;grid cap); supplies the&nbsp;site when power is&nbsp;expensive or&nbsp;demand goes above the&nbsp;cap.</p>`;
+}
+
 export function renderSite(root, site, snapshot, ctx) {
   const w = site.weather;
   const stations = snapshot.stations.filter((s) => s.site === site.code);
@@ -92,15 +113,17 @@ export function renderSite(root, site, snapshot, ctx) {
       ${stat(kw(site.power_w), `of ${kw(site.cap_w)} grid cap (${Math.round(used * 100)}%)`)}
       ${stat(`${site.free}/${site.connectors_total}`, "connectors free now")}
       ${stat(`${dem.queue ?? 0}`, dem.queue ? `waiting, longest ${mins(dem.longest_wait_s)}` : "cars waiting")}
-      ${stat(pct(site.uptime_today), "uptime today (time-weighted)")}
+      ${stat(upct(site.uptime_today), `uptime since ${snapshot.kpis.uptime_since || "–"} (time-weighted)`)}
     </div>
     <div class="bar"><i class="${loadClass(site.cap_used)}" style="width:${Math.min(100, used * 100).toFixed(1)}%"></i></div>
     ${ctl?.active ? `<p class="meta">Site controller active: chargers share the cap at ${kw(ctl.share_w)} each, so sessions take longer.</p>` : ""}
     <h4>Demand</h4>
-    <p class="meta">${dem.arrivals_per_hour ?? 0} cars/hour arriving now · ${dem.completed ?? 0} done today · ${dem.abandoned ?? 0} gave up waiting · ${dem.interrupted ?? 0} interrupted${dem.avg_wait_s ? ` · average wait ${mins(dem.avg_wait_s)}` : ""}</p>
+    <p class="meta">${esc(dem.reason ?? "")}: ${dem.arrivals_per_hour ?? 0} cars/hour coming${dem.price_factor && dem.price_factor !== 1 ? ` (${dem.price_factor > 1 ? "+" : "−"}${Math.round(Math.abs(dem.price_factor - 1) * 100)}% because of the tariff)` : ""}.
+      The app shows a&nbsp;wait of&nbsp;${mins(dem.expected_wait_s ?? 0)}. Today: ${dem.completed ?? 0} done, ${dem.diverted ?? 0} saw the wait and&nbsp;went elsewhere, ${dem.abandoned ?? 0} gave up in&nbsp;the&nbsp;queue, ${dem.interrupted ?? 0} interrupted${dem.avg_wait_s ? `; average wait ${mins(dem.avg_wait_s)}` : ""}.</p>
+    ${batterySection(site.battery)}
     <h4>Money today</h4>
     <table class="money">
-      <tr><td>Tariff now</td><td>€${(money.tariff_eur_kwh ?? 0).toFixed(2)}/kWh</td></tr>
+      <tr><td>Tariff now ${tariffNote(site, money)}</td><td>€${(money.tariff_eur_kwh ?? 0).toFixed(2)}/kWh</td></tr>
       <tr><td>Energy cost now (spot + fees)</td><td>€${(money.buy_eur_kwh ?? 0).toFixed(2)}/kWh</td></tr>
       <tr><td>Sold ${(money.energy_kwh ?? 0).toFixed(0)}${NB}kWh (${(money.solar_kwh ?? 0).toFixed(0)} from solar)</td><td>${eur(money.revenue_eur)}</td></tr>
       <tr><td>Bought ${(money.grid_kwh ?? 0).toFixed(0)}${NB}kWh from the grid</td><td>${eur(-(money.cost_eur ?? 0))}</td></tr>
@@ -222,6 +245,8 @@ export function renderControls(root, snapshot, meta) {
       <button class="switch ${ap.enabled ? "on" : ""}" data-act="autopilot" aria-label="Random scenarios"></button></div>
     <div class="row"><div class="what"><b>Dynamic pricing</b><span>public tariffs follow price spikes; dearer chargers lose drivers to&nbsp;competitors</span></div>
       <button class="switch ${snapshot.economics?.dynamic ? "on" : ""}" data-act="pricing" aria-label="Dynamic pricing"></button></div>
+    <div class="row"><div class="what"><b>Site batteries</b><span>store cheap and&nbsp;solar power, release it in&nbsp;spikes and&nbsp;above the&nbsp;grid cap</span></div>
+      <button class="switch ${snapshot.batteries_enabled ? "on" : ""}" data-act="batteries" aria-label="Site batteries"></button></div>
     ${fleetMoney(snapshot)}
     <h4>Power price (ENTSO-E, NL day-ahead)</h4>
     ${prices.available ? `<div class="row"><div class="what"><b>€${prices.now_eur_mwh.toFixed(0)}/MWh now${prices.expensive ? " · expensive" : ""}</b>
@@ -240,6 +265,7 @@ export function renderControls(root, snapshot, meta) {
     </table>
     <div class="control"><button class="mini" data-act="clear-chaos">Restore all networks</button></div>`;
   root.querySelector('[data-act="world"]').onclick = (e) => post("/api/world", { enabled: !world.enabled }, e.target);
+  root.querySelector('[data-act="batteries"]').onclick = (e) => post("/api/batteries", { enabled: !snapshot.batteries_enabled }, e.target);
   root.querySelector('[data-act="pricing"]').onclick = (e) => post("/api/pricing", { enabled: !snapshot.economics?.dynamic }, e.target);
   root.querySelector('[data-act="autopilot"]').onclick = (e) => post("/api/autopilot", { enabled: !ap.enabled }, e.target);
   root.querySelectorAll("[data-scenario]").forEach((b) => { b.onclick = () => post(`/api/scenarios/${b.dataset.scenario}/start`, {}, b); });
@@ -257,7 +283,7 @@ const KPI_INFO = {
     what: "Share of connector-time that was usable since local midnight (or since the control service started). "
       + "Usable = station connected and connector free, preparing, charging, suspended or finishing. Faulted, "
       + "unavailable and offline time is downtime. This is how charging uptime is reported; US NEVI asks for 97 % or more.",
-    rows: (s) => s.sites.map((x) => [x.code, pct(x.uptime_today), `${x.downtime_min ?? 0}${NB}connector-min down`]),
+    rows: (s) => s.sites.map((x) => [x.code, upct(x.uptime_today), `${x.downtime_min ?? 0}${NB}connector-min down`]),
     value: (s) => `${((s.kpis.uptime_today ?? 0) * 100).toFixed(2)}% since ${s.kpis.uptime_since || "–"}`,
   },
   charging: {
@@ -283,11 +309,20 @@ const KPI_INFO = {
   },
   price: {
     title: "Power price",
-    what: "ENTSO-E day-ahead price for the Netherlands, 15-minute slots. Energy cost = this price plus about "
-      + "€0.11/kWh in fees. In the day's top 20 %, the depot fleet charges at half power; with dynamic pricing, "
-      + "public tariffs rise and some drivers go elsewhere.",
-    rows: (s) => s.sites.map((x) => [x.code, `tariff €${(x.economics?.tariff_eur_kwh ?? 0).toFixed(2)}/kWh`, `cost €${(x.economics?.buy_eur_kwh ?? 0).toFixed(2)}/kWh`]),
-    value: (s) => (s.prices?.available ? `€${s.prices.now_eur_mwh.toFixed(0)}/MWh (today €${s.prices.min_eur_mwh.toFixed(0)} to €${s.prices.max_eur_mwh.toFixed(0)})` : "no data"),
+    what: "Where the number comes from: the ENTSO-E day-ahead market for the Netherlands, one price per 15 minutes, "
+      + "fixed the day before. What it costs us: that price plus about €0.11/kWh in network fees and taxes; solar "
+      + "and battery energy are free at the moment of use. What drivers pay: each site has a base tariff (depot "
+      + "€0.32 and office €0.39 on contracts, retail €0.49, highway €0.69). With dynamic pricing, public tariffs "
+      + "follow the market: 60 % of a spike above today's average is added (up to +60 %), and 80 % of a dip below "
+      + "it is given back as a discount (down to −40 %), plus 10 % off while solar covers half the site. How it "
+      + "changes demand: price-sensitive drivers (retail, highway) come less when it's dear and more when it's "
+      + "cheap, up to 1.8x; they also check the wait in an app and go elsewhere if it's long. What else reacts: "
+      + "in the day's top 20 % the depot fleet charges at half power and the batteries supply the sites; in the "
+      + "cheapest quarter the batteries fill up.",
+    rows: (s) => s.sites.map((x) => [x.code, `tariff €${(x.economics?.tariff_eur_kwh ?? 0).toFixed(2)}/kWh`,
+      `cost €${(x.economics?.buy_eur_kwh ?? 0).toFixed(2)}/kWh`, x.battery ? `battery ${x.battery.mode}` : ""]),
+    value: (s) => (s.prices?.available ? `€${s.prices.now_eur_mwh.toFixed(0)}/MWh now · today €${s.prices.min_eur_mwh.toFixed(0)} to €${s.prices.max_eur_mwh.toFixed(0)}, average €${s.prices.avg_eur_mwh.toFixed(0)}${s.prices.expensive ? " · expensive slot" : s.prices.rank <= 0.25 ? " · cheap slot" : ""}` : "no data"),
+    extra: (s) => sparkline(s.prices),
   },
   margin: {
     title: "Margin today",
@@ -311,6 +346,7 @@ export function renderKpi(root, id, snapshot) {
   root.innerHTML = `
     <h3>${esc(info.title)}</h3>
     <p class="kpi-value">${esc(info.value(snapshot))}</p>
+    ${info.extra ? info.extra(snapshot) : ""}
     <p>${esc(info.what)}</p>
     ${rows.length ? `<table>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table>` : `<p class="hint">Nothing right now.</p>`}`;
 }

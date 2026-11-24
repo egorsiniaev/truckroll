@@ -131,7 +131,7 @@ function renderHeader() {
   const k = snapshot.kpis;
   const capTotal = snapshot.sites.reduce((a, s) => a + s.cap_w, 0);
   const up = k.uptime_today;
-  setKpi("availability", up, up == null ? "–" : `${(up * 100).toFixed(1)}%`, (up ?? 1) < 0.97);
+  setKpi("availability", up, up == null ? "–" : `${(up * 100).toFixed(up < 0.995 ? 1 : 2)}%`, (up ?? 1) < 0.97);
   setKpi("charging", k.connectors_total ? k.charging / k.connectors_total : 0, `${k.charging}/${k.connectors_total}`);
   setKpi("queue", Math.min(1, (k.queue ?? 0) / 10), `${k.queue ?? 0}`, (k.queue ?? 0) >= 5);
   const load = capTotal ? k.power_w / capTotal : 0;
@@ -186,7 +186,7 @@ function renderFeed() {
       const steps = expanded === i.id ? `<ol class="steps">${i.timeline.map((t) => `<li class="${t.type}" title="${esc(t.text)}">
           <time>${fmtTime(t.time)}</time><b>${STEP[t.type] ?? t.type}</b><span>${esc(t.text)}</span><em>${ACTOR[t.actor] ?? ""}</em></li>`).join("")}</ol>` : "";
       return `<li class="inc-row ${i.severity} ${i.status} ${expanded === i.id ? "open" : ""}" data-inc="${esc(i.id)}">
-        <div class="line"><i class="sev"></i><b class="title">${esc(i.title)}</b><span class="chain">${chain}</span><small>${incidentAge(i)}</small></div>${steps}</li>`;
+        <div class="line"><i class="sev"></i><time class="opened">${new Date(i.opened).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><b class="title">${esc(i.title)}</b><span class="chain">${chain}</span><small>${incidentAge(i)}</small></div>${steps}</li>`;
     }).join("");
     list.querySelectorAll("[data-inc] > .line").forEach((line) => {
       line.onclick = () => {

@@ -99,6 +99,19 @@ function buildSite(siteLayer, labelLayer, gridLayer, site, stations, ox, oy, ind
   g.append(busFlow);
 
   const objects = [...buildingFor(site, ox, oy)];
+  // Battery container next to the transformer: fill level = state of charge, light = charging or discharging.
+  const bx = ox + SIZE - 4.6;
+  const by = oy + 0.4;
+  const batt = box(bx, by, 0, 1.9, 1.1, 1.3, "#e2e8f0", "batt");
+  const fill = el("polygon", { class: "batt-fill" });
+  const [lx, ly] = iso(bx + 0.95, by + 1.1, 1.55);
+  const battLight = el("circle", { cx: lx, cy: ly, r: 3.5, class: "batt-light" });
+  const [tx2, ty2] = iso(bx + 0.95, by + 0.55, 2.3);
+  const battText = el("text", { x: tx2, y: ty2, class: "scene-text batt-text" }, [""]);
+  batt.g.append(fill, battLight, battText);
+  batt.g.classList.add("battery");
+  objects.push({ depth: bx + by + 2.5, node: batt.g });
+  const battery = { fill, light: battLight, text: battText, bx, by };
   objects.push({ depth: entry[0] + entry[1], node: box(entry[0] - 0.7, entry[1] - 0.5, 0, 1.2, 1.0, 1.0, "#d1d5db", "tf").g });
 
   const layout = chargerLayout(stations.length, site.connectors);
@@ -147,7 +160,7 @@ function buildSite(siteLayer, labelLayer, gridLayer, site, stations, ox, oy, ind
   objects.sort((a, b) => a.depth - b.depth).forEach((o) => g.append(o.node));
   g.append(queueText);
   siteLayer.append(g);
-  return { g, platform, gridFlow, busFlow, queueCars, queueText,
+  return { g, platform, gridFlow, busFlow, queueCars, queueText, battery,
     label: buildLabel(labelLayer, site, ox, oy, index), stations: stationRefs };
 }
 
@@ -233,7 +246,7 @@ function buildLabel(layer, site, ox, oy, index) {
   const g = el("g", { class: "label-card clickable", transform: `translate(${ax.toFixed(0)},${ay.toFixed(0)})` });
   g.addEventListener("click", () => refs.onSelect({ type: "site", id: site.code }));
   const w = 272;
-  g.append(el("rect", { x: -w / 2, y: -48, width: w, height: 82, rx: 10 }));
+  g.append(el("rect", { x: -w / 2, y: -48, width: w, height: 98, rx: 10 }));
   g.append(el("text", { x: -w / 2 + 12, y: -28, "font-weight": 600 }, [site.code]));
   const sub = el("text", { x: -w / 2 + 12, y: -12, class: "small" }, ["…"]);
   g.append(sub);
@@ -241,7 +254,8 @@ function buildLabel(layer, site, ox, oy, index) {
   const bar = el("rect", { x: -w / 2 + 12, y: -2, width: 0, height: 6, rx: 3, class: "barfg" });
   g.append(bar);
   const demandLine = el("text", { x: -w / 2 + 12, y: 22, class: "small demand-line" }, [""]);
-  g.append(demandLine);
+  const batteryLine = el("text", { x: -w / 2 + 12, y: 38, class: "small battery-line" }, [""]);
+  g.append(demandLine, batteryLine);
   const tag = el("g", { visibility: "hidden" });
   const tagRect = el("rect", { y: -42, height: 18, rx: 9, class: "badge-down" });
   const tagText = el("text", { y: -29, "text-anchor": "middle", fill: "#fff", "font-size": 10, "font-weight": 700 }, [""]);
@@ -254,7 +268,7 @@ function buildLabel(layer, site, ox, oy, index) {
   weather.append(wIcon, wText, wSub);
   g.append(weather);
   layer.append(g);
-  return { g, sub, bar, barWidth: w - 24, w, tag, tagRect, tagText, wIcon, wText, wSub, demandLine };
+  return { g, sub, bar, barWidth: w - 24, w, tag, tagRect, tagText, wIcon, wText, wSub, demandLine, batteryLine };
 }
 
 function weatherIcon(w) {
@@ -314,7 +328,18 @@ export function updateScene(snapshot, selected) {
     const tariff = s.economics?.tariff_eur_kwh;
     const priceEffect = d.price_factor != null && d.price_factor < 0.95 ? ` −${Math.round((1 - d.price_factor) * 100)}%${NB}price` : "";
     r.label.demandLine.textContent = `${d.reason ?? "–"} · ${Math.round(d.arrivals_per_hour ?? 0)} cars/h${priceEffect}${tariff != null ? ` · €${tariff.toFixed(2)}` : ""}`;
-    r.queueText.textContent = queue ? `${queue} waiting · ${d.reason ?? ""}` : "";
+    const appWait = d.expected_wait_s ? ` · app shows ~${Math.round(d.expected_wait_s / 60)}${NB}min` : "";
+    r.queueText.textContent = queue ? `${queue} waiting${appWait} · ${d.reason ?? ""}` : "";
+    const b = s.battery;
+    if (b) {
+      const [x0, y0, h] = [r.battery.bx, r.battery.by + 1.1, 1.3 * b.soc];
+      r.battery.fill.setAttribute("points", pts([[x0 + 0.1, y0 + 0.01, 0.05], [x0 + 1.8, y0 + 0.01, 0.05], [x0 + 1.8, y0 + 0.01, 0.05 + h * 0.92], [x0 + 0.1, y0 + 0.01, 0.05 + h * 0.92]]));
+      r.battery.fill.setAttribute("class", `batt-fill ${b.soc < 0.2 ? "low" : ""}`);
+      r.battery.light.setAttribute("class", `batt-light ${b.mode}`);
+      r.battery.text.textContent = `${Math.round(b.soc * 100)}%`;
+      const verb = b.mode === "charging" ? `charging ${Math.round(b.power_w / 1000)}${NB}kW` : b.mode === "discharging" ? `supplying ${Math.round(-b.power_w / 1000)}${NB}kW` : b.mode;
+      r.label.batteryLine.textContent = `🔋 ${Math.round(b.soc * 100)}% · ${verb} · ${b.reason}`;
+    }
     r.queueCars.forEach((car, q) => car.g.classList.toggle("more", q === QUEUE_SLOTS - 1 && queue > QUEUE_SLOTS));
     const siteOpen = open.filter((i) => i.site === code).length;
     const inScenario = run?.sites?.includes(code);

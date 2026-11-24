@@ -380,3 +380,11 @@ table.chaos select { padding: 3px 6px; font-size: 11px; }
 .stat b i.val { font-style: normal; }
 .age { font-size: 11px; color: var(--muted); }
 .age.warn { color: #b45309; font-weight: 600; } .age.bad { color: #b91c1c; font-weight: 700; }
+
+.inc-row .opened { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.batt-fill { fill: var(--available); opacity: .85; } .batt-fill.low { fill: var(--faulted); }
+.batt-light { fill: #94a3b8; stroke: #fff; stroke-width: 1; }
+.batt-light.charging { fill: var(--charging); animation: pulse 1.2s infinite; }
+.batt-light.discharging { fill: var(--preparing); animation: pulse 1.2s infinite; }
+.batt-text { font-size: 11px; font-weight: 700; }
+.label-card .battery-line { fill: #475569; }
