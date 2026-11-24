@@ -6,27 +6,39 @@
   <title>Truckroll · live charging network</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="phase-day">
   <header class="top">
     <div class="brand">
       <h1>Truckroll</h1>
-      <p class="sub">Live charging network <span id="live" class="live">connecting…</span> <span id="banner" class="banner" hidden></span></p>
+      <p class="sub">
+        <span id="clock" class="clock">–</span>
+        <span id="live" class="live">connecting…</span>
+        <span id="banner" class="banner" hidden></span>
+      </p>
     </div>
     <div class="kpis" id="kpis">
       <div class="kpi" data-kpi="availability"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Availability</span></div></div>
-      <div class="kpi" data-kpi="online"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Stations online</span></div></div>
-      <div class="kpi" data-kpi="charging"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Charging now</span></div></div>
-      <div class="kpi" data-kpi="power"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Power vs grid caps</span></div></div>
-      <div class="kpi" data-kpi="faulted"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Faulted</span></div></div>
+      <div class="kpi" data-kpi="online"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Online</span></div></div>
+      <div class="kpi" data-kpi="charging"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Charging</span></div></div>
+      <div class="kpi" data-kpi="power"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Power vs caps</span></div></div>
+      <div class="kpi" data-kpi="price"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Power price</span></div></div>
+      <div class="kpi" data-kpi="incidents"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="18"/><circle class="value" cx="22" cy="22" r="18"/></svg><div><b>–</b><span>Open incidents</span></div></div>
+      <a id="grafana" class="metrics" href="http://localhost:3000/d/truckroll-fleet" target="_blank" rel="noopener">Metrics in&nbsp;Grafana ↗</a>
     </div>
   </header>
 
   <main class="stage">
-    <svg id="scene" viewBox="-780 -500 1560 960" role="img" aria-label="Isometric map of four charging sites"></svg>
+    <svg id="scene" viewBox="-790 -510 1580 980" role="img" aria-label="Isometric map of four charging sites"></svg>
 
-    <section class="feed" aria-live="polite">
-      <h2>Events</h2>
-      <ol id="feed"><li class="muted">Waiting for&nbsp;the&nbsp;first update…</li></ol>
+    <section class="feed" id="feed-box" aria-live="polite">
+      <button class="feed-head" id="feed-toggle" aria-expanded="true">
+        <span>Incidents</span><span id="feed-summary" class="muted"></span><i class="chev">▾</i>
+      </button>
+      <div class="feed-body" id="feed-body">
+        <ol id="incidents"><li class="muted">No incidents yet.</li></ol>
+        <button class="linkish" id="log-toggle">Show raw log</button>
+        <ol id="log" class="log" hidden></ol>
+      </div>
     </section>
 
     <section class="legend">
@@ -35,6 +47,7 @@
       <span><i class="dot charging"></i>Charging</span>
       <span><i class="dot faulted"></i>Faulted</span>
       <span><i class="dot offline"></i>Offline</span>
+      <span class="sep"><i class="car-icon"></i>Car plugged in; its light is&nbsp;the&nbsp;connector state</span>
     </section>
   </main>
 
@@ -44,9 +57,9 @@
       <button data-tab="controls">Control panel</button>
     </nav>
     <div id="details" class="tab-body">
-      <p class="hint">Click a&nbsp;site or&nbsp;a&nbsp;charger to&nbsp;see what it’s doing and&nbsp;to&nbsp;control&nbsp;it.</p>
+      <p class="hint">Click a&nbsp;site, a&nbsp;charger or&nbsp;an&nbsp;incident to&nbsp;see what’s going on and&nbsp;to&nbsp;control&nbsp;it.</p>
     </div>
-    <div id="controls" class="tab-body" hidden></div>
+    <div id="controls" class="tab-body compact" hidden></div>
   </aside>
 
   <div id="toast" class="toast" hidden></div>

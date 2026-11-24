@@ -2,11 +2,12 @@
 import { STATE_COLORS } from "./scene.js";
 
 const NB = " ";
-const kw = (w) => `${(w / 1000).toFixed(1)}${NB}kW`;
+export const kw = (w) => `${(w / 1000).toFixed(1)}${NB}kW`;
 const kwh = (wh) => `${(wh / 1000).toFixed(1)}${NB}kWh`;
 const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const LATENCIES = [0, 500, 2000, 5000];
+const mins = (s) => (s == null ? "–" : s >= 60 ? `${Math.round(s / 60)}${NB}min` : `${Math.round(s)}${NB}s`);
 
 let toastTimer = null;
 export function toast(text, isError = false) {
@@ -34,18 +35,19 @@ export async function post(path, body, button) {
   }
 }
 
-function pill(state) {
-  return `<span class="pill" style="background:${STATE_COLORS[state] ?? "#94a3b8"}">${esc(state)}</span>`;
-}
+const pill = (state) => `<span class="pill" style="background:${STATE_COLORS[state] ?? "#94a3b8"}">${esc(state)}</span>`;
+const stat = (value, label) => `<div class="stat"><b>${value}</b><span>${label}</span></div>`;
 
-function stat(value, label) {
-  return `<div class="stat"><b>${value}</b><span>${label}</span></div>`;
+function rulesList(rules) {
+  if (!rules?.length) return `<p class="hint">No real-world rules for&nbsp;this site.</p>`;
+  return `<ul class="rules">${rules.map((r) => `<li class="${r.active ? "" : "muted"}">${r.active ? "● active:" : "○ standby:"} ${esc(r.text)}</li>`).join("")}</ul>`;
 }
 
 export function renderSite(root, site, snapshot, ctx) {
   const w = site.weather;
   const stations = snapshot.stations.filter((s) => s.site === site.code);
   const used = site.cap_used ?? 0;
+  const ctl = site.controller;
   root.innerHTML = `
     <h3>${esc(site.code)}</h3>
     <p class="meta">${esc(site.kind)} · ${site.stations} stations · ${site.stations * site.connectors} connectors</p>
@@ -53,68 +55,65 @@ export function renderSite(root, site, snapshot, ctx) {
       ${stat(kw(site.power_w), `of ${kw(site.cap_w)} grid cap`)}
       ${stat(pct(site.availability), "connectors available")}
     </div>
-    <div class="bar"><i class="${used > 1 ? "over" : ""}" style="width:${Math.min(100, used * 100).toFixed(1)}%"></i></div>
+    <div class="bar"><i class="${used > 1 || ctl?.active ? "over" : ""}" style="width:${Math.min(100, used * 100).toFixed(1)}%"></i></div>
+    ${ctl?.active ? `<p class="meta">Site controller active: chargers share the cap at ${kw(ctl.share_w)} each.</p>` : ""}
+    <h4>Real-world rules here</h4>
+    ${rulesList(site.rules)}
     <h4>Weather and&nbsp;solar now</h4>
     ${w ? `<div class="grid2">
       ${stat(`${w.temp_c ?? "–"}°C`, "temperature")}
       ${stat(`${w.gust_kmh ?? "–"}${NB}km/h`, "wind gusts")}
-      ${stat(`${w.cloud_pct ?? "–"}%`, "cloud cover")}
-      ${stat(`${w.radiation_wm2 ?? "–"}${NB}W/m²`, "solar radiation")}
       ${stat(kw(site.solar_w ?? 0), `solar from ${kw(site.pv_w ?? 0)} panels`)}
       ${stat(kw(Math.max(0, site.power_w - (site.solar_w ?? 0))), "drawn from the grid")}
     </div><p class="meta">Open-Meteo, ${esc(w.time ?? "")}${w.stale ? " (stale)" : ""}</p>` : `<p class="hint">No weather yet.</p>`}
     <h4>Network</h4>
-    <p>${site.network.enabled ? "Connected" : "<b style='color:#b91c1c'>Outage</b>"}${site.network.latency_ms ? `, +${site.network.latency_ms}${NB}ms latency` : ""}</p>
-    <div class="control">
-      <button class="act ${site.network.enabled ? "danger" : "primary"}" data-act="outage">${site.network.enabled ? "Start network outage" : "Restore network"}</button>
-    </div>
-    <div class="control">
-      <label for="lat">Added latency</label>
-      <select id="lat">${LATENCIES.map((ms) => `<option value="${ms}" ${ms === site.network.latency_ms ? "selected" : ""}>${ms ? `${ms}${NB}ms` : "none"}</option>`).join("")}</select>
-      <button class="act" data-act="latency">Apply</button>
-    </div>
+    <div class="row"><div class="what"><b>${site.network.enabled ? "Connected" : "Outage"}</b><span>${site.network.latency_ms ? `+${site.network.latency_ms}${NB}ms added latency` : "no added latency"}</span></div>
+      <button class="mini ${site.network.enabled ? "danger" : "primary"}" data-act="outage">${site.network.enabled ? "Cut network" : "Restore"}</button></div>
     <h4>Stations</h4>
-    <div class="chips">${stations.map((s) => `<button class="chip" data-station="${esc(s.id)}"><i class="dot ${s.state}"></i>${esc(s.id.replace(`${site.code}-`, ""))}</button>`).join("")}</div>`;
+    <div class="chips">${stations.map((s) => `<button class="chip" data-station="${esc(s.id)}"><i class="dot ${s.state}"></i>${esc(s.id.replace(`${site.code}-`, ""))}</button>`).join("")}</div>
+    ${snapshot.grafana_url ? `<p class="meta" style="margin-top:12px"><a href="${esc(snapshot.grafana_url)}" target="_blank" rel="noopener">See ${esc(site.code)} in&nbsp;Grafana ↗</a></p>` : ""}`;
   root.querySelector('[data-act="outage"]').onclick = (e) => post(`/api/sites/${site.code}/outage`, { on: site.network.enabled }, e.target);
-  root.querySelector('[data-act="latency"]').onclick = (e) => post(`/api/sites/${site.code}/latency`, { ms: Number(root.querySelector("#lat").value) }, e.target);
   root.querySelectorAll("[data-station]").forEach((b) => { b.onclick = () => ctx.select({ type: "station", id: b.dataset.station }); });
 }
 
-export function renderStation(root, st, site, meta, ctx) {
+export function renderStation(root, st, site, meta, snapshot, ctx) {
   const maxW = site ? site.power_w : 22000;
   const limit = st.limit_w ?? maxW;
+  const sources = Object.entries(st.limit_sources || {});
+  const incidents = (snapshot.incidents || []).filter((i) => i.stations.includes(st.id) && i.status === "open");
   root.innerHTML = `
     <p class="meta"><a href="#" data-site>${esc(st.site)}</a></p>
     <h3>${esc(st.id)} ${pill(st.state)}</h3>
     <p class="meta">${esc(st.vendor)} ${esc(st.model)} · firmware ${esc(st.firmware || "–")}</p>
+    ${incidents.map((i) => `<p class="meta" style="color:#b91c1c">Open incident: ${esc(i.title)}</p>`).join("")}
     <div class="grid2">
       ${stat(kw(st.power_w), "power now")}
       ${stat(st.limit_w == null ? "none" : kw(st.limit_w), "power limit")}
       ${stat(`${st.heartbeat_age_s}${NB}s`, "since last message")}
       ${stat(st.connected ? "online" : "offline", "connection")}
     </div>
+    ${sources.length ? `<p class="meta">Limited by: ${sources.map(([k, v]) => `${esc(k)} ${kw(v)}`).join(", ")} (lowest wins)</p>` : ""}
     <h4>Connectors</h4>
     <table><tr><th>#</th><th>Status</th><th>Power</th><th>Energy</th><th>Error</th></tr>
       ${st.connectors.map((c) => `<tr><td>${c.id}</td><td>${esc(c.status)}</td><td>${kw(c.power_w)}</td><td>${kwh(c.energy_wh)}</td><td>${c.error_code === "NoError" ? "–" : esc(c.error_code)}</td></tr>`).join("")}
     </table>
     <h4>Control</h4>
     <div class="control">
-      <label for="limit">Power limit (sent as OCPP smart-charging profile)</label>
+      <label for="limit">Operator power limit (OCPP smart-charging profile)</label>
       <input id="limit" type="range" min="0" max="${maxW}" step="${maxW > 50000 ? 5000 : 1000}" value="${limit}">
       <output id="limit-out">${kw(limit)}</output>
-      <button class="act primary" data-act="limit">Apply</button>
-      <button class="act" data-act="clear-limit">Clear</button>
+      <button class="mini primary" data-act="limit">Apply</button>
+      <button class="mini" data-act="clear-limit">Clear</button>
     </div>
     <div class="control">
-      <label for="fault">Inject a&nbsp;fault on&nbsp;every connector</label>
       <select id="fault">${meta.error_codes.map((c) => `<option>${esc(c)}</option>`).join("")}</select>
-      <button class="act danger" data-act="fault">Inject</button>
-      <button class="act" data-act="clear-fault">Clear fault</button>
+      <button class="mini danger" data-act="fault">Inject fault</button>
+      <button class="mini" data-act="clear-fault">Clear fault</button>
     </div>
     <div class="control">
-      <button class="act" data-act="off">Switch off</button>
-      <button class="act" data-act="on">Switch on</button>
-      <button class="act" data-act="reset">Soft reset</button>
+      <button class="mini" data-act="off">Switch off</button>
+      <button class="mini" data-act="on">Switch on</button>
+      <button class="mini" data-act="reset">Soft reset</button>
     </div>`;
   const range = root.querySelector("#limit");
   const out = root.querySelector("#limit-out");
@@ -131,59 +130,59 @@ export function renderStation(root, st, site, meta, ctx) {
   root.querySelector("[data-site]").onclick = (e) => { e.preventDefault(); ctx.select({ type: "site", id: st.site }); };
 }
 
-function worldSection(snapshot) {
-  const w = snapshot.world || { enabled: false, rules: [], demand: {} };
-  const rules = (w.rules || []).map((r) => `<li class="${r.active ? "" : "muted"}">${r.active ? "●" : "○"} <b>${esc(r.site)}</b> ${esc(r.text)}</li>`).join("");
-  const demand = Object.entries(w.demand || {}).map(([site, share]) => `${esc(site)} ${Math.round(share * 100)}%`).join(" · ");
-  return `
-    <h4 style="margin-top:0">Real-world mode</h4>
-    <p class="hint">When on, local time sets how busy each site is and&nbsp;live weather from Open-Meteo triggers derates and&nbsp;network trouble. Local hour: ${w.hour ?? "–"}.</p>
-    <div class="control"><button class="act ${w.enabled ? "" : "primary"}" data-act="world">${w.enabled ? "Turn real-world mode off" : "Turn real-world mode on"}</button></div>
-    ${w.enabled && demand ? `<p class="meta">Arrivals now: ${demand}</p>` : ""}
-    <ul class="rules">${rules}</ul>`;
-}
-
-function scenarioSection(snapshot, meta) {
-  const run = snapshot.scenario?.running;
-  const list = (meta.scenarios || []).map((s) => `
-    <div class="site-row">
-      <h5>${esc(s.title)} <span class="muted">~${Math.round(s.duration_s / 60)}${NB}min</span></h5>
-      <p class="meta">${esc(s.description)}</p>
-      <button class="act" data-scenario="${esc(s.id)}" ${run ? "disabled" : ""}>Start</button>
-    </div>`).join("");
-  const progress = run ? Math.min(100, (run.elapsed_s / run.duration_s) * 100) : 0;
-  return `
-    <h4>Scenarios</h4>
-    ${run ? `<div class="running"><b>Running: ${esc(run.title)}</b>
-      <div class="bar"><i style="width:${progress.toFixed(0)}%"></i></div>
-      <ul class="rules">${run.steps_done.map((t) => `<li>✓ ${esc(t)}</li>`).join("")}</ul>
-      <button class="act danger" data-act="stop-scenario">Stop and&nbsp;clean up</button></div>` : ""}
-    ${list}`;
+function sparkline(prices) {
+  const curve = prices?.curve || [];
+  if (curve.length < 2) return "";
+  const W = 320, H = 46;
+  const vals = curve.map((c) => c.p);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const x = (i) => (i / (curve.length - 1)) * W;
+  const y = (v) => H - 4 - ((v - lo) / Math.max(1, hi - lo)) * (H - 8);
+  const d = curve.map((c, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(c.p).toFixed(1)}`).join("");
+  const now = new Date();
+  const idx = Math.min(curve.length - 1, Math.floor(((now.getHours() * 60 + now.getMinutes()) / 1440) * curve.length));
+  const hot = y(prices.expensive_from_eur_mwh);
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <rect class="hot" x="0" y="0" width="${W}" height="${Math.max(0, hot).toFixed(1)}"></rect>
+    <path class="area" d="${d}L${W},${H}L0,${H}Z"></path><path d="${d}"></path>
+    <line class="now" x1="${x(idx).toFixed(1)}" x2="${x(idx).toFixed(1)}" y1="0" y2="${H}"></line></svg>`;
 }
 
 export function renderControls(root, snapshot, meta) {
+  const world = snapshot.world || {};
+  const ap = snapshot.autopilot || {};
+  const run = snapshot.scenario?.running;
+  const prices = snapshot.prices || {};
+  const activeRules = (world.rules || []).filter((r) => r.active);
+  const progress = run ? Math.min(100, (run.elapsed_s / run.duration_s) * 100) : 0;
   root.innerHTML = `
-    ${worldSection(snapshot)}
-    ${scenarioSection(snapshot, meta)}
-    <h4>Network chaos per site</h4>
-    ${snapshot.sites.map((s) => `
-      <div class="site-row">
-        <h5>${esc(s.code)} <span class="muted">${s.network.enabled ? "connected" : "OUTAGE"}${s.network.latency_ms ? ` · +${s.network.latency_ms}${NB}ms` : ""}</span></h5>
-        <div class="control">
-          <button class="act ${s.network.enabled ? "danger" : "primary"}" data-outage="${esc(s.code)}" data-on="${s.network.enabled}">${s.network.enabled ? "Outage" : "Restore"}</button>
-          ${LATENCIES.map((ms) => `<button class="act" data-lat="${esc(s.code)}" data-ms="${ms}">${ms ? `+${ms}${NB}ms` : "No latency"}</button>`).join("")}
-        </div>
-      </div>`).join("")}
-    <div class="control" style="margin-top:14px">
-      <button class="act primary" data-act="clear-chaos">Clear all network chaos</button>
-    </div>
-    <h4>Stations</h4>
-    <p class="hint">Power limits, faults, switch off and&nbsp;reset live in&nbsp;each station’s details. Click a&nbsp;charger on&nbsp;the&nbsp;map.</p>`;
-  root.querySelectorAll("[data-outage]").forEach((b) => { b.onclick = () => post(`/api/sites/${b.dataset.outage}/outage`, { on: b.dataset.on === "true" }, b); });
-  root.querySelectorAll("[data-lat]").forEach((b) => { b.onclick = () => post(`/api/sites/${b.dataset.lat}/latency`, { ms: Number(b.dataset.ms) }, b); });
-  root.querySelector('[data-act="clear-chaos"]').onclick = (e) => post("/api/chaos/clear", {}, e.target);
-  root.querySelector('[data-act="world"]').onclick = (e) => post("/api/world", { enabled: !snapshot.world?.enabled }, e.target);
+    <div class="row"><div class="what"><b>Real-world mode</b><span>local time sets demand, weather and&nbsp;prices set limits</span></div>
+      <button class="switch ${world.enabled ? "on" : ""}" data-act="world" aria-label="Real-world mode"></button></div>
+    ${world.enabled && activeRules.length ? `<ul class="active-rules">${activeRules.map((r) => `<li>● ${esc(r.site)}: ${esc(r.text)}</li>`).join("")}</ul>` : ""}
+    <div class="row"><div class="what"><b>Random scenarios</b><span>${ap.enabled ? (run ? "waiting for the current one to end" : `next in ${mins(ap.next_in_s)}`) : "off"}</span></div>
+      <button class="switch ${ap.enabled ? "on" : ""}" data-act="autopilot" aria-label="Random scenarios"></button></div>
+    <h4>Power price (ENTSO-E, NL day-ahead)</h4>
+    ${prices.available ? `<div class="row"><div class="what"><b>€${prices.now_eur_mwh.toFixed(0)}/MWh now${prices.expensive ? " · expensive" : ""}</b>
+      <span>today €${prices.min_eur_mwh.toFixed(0)} to €${prices.max_eur_mwh.toFixed(0)}, red band = top 20%</span></div></div>${sparkline(prices)}`
+      : `<p class="hint">No price data${snapshot.upstream_errors?.prices ? `: ${esc(snapshot.upstream_errors.prices)}` : ""}.</p>`}
+    <h4>Scenarios</h4>
+    ${run ? `<div class="running"><b>${esc(run.title)}</b> <span class="muted">${Math.round(run.elapsed_s)}/${run.duration_s}${NB}s</span>
+      <div class="bar"><i style="width:${progress.toFixed(0)}%"></i></div>
+      <button class="mini danger" data-act="stop-scenario" style="margin-top:6px">Stop and&nbsp;clean up</button></div>` : ""}
+    ${(meta.scenarios || []).map((s) => `<div class="row" title="${esc(s.description)}"><div class="what"><b>${esc(s.title)}</b><span>${esc(s.description)}</span></div>
+      <button class="mini" data-scenario="${esc(s.id)}" ${run ? "disabled" : ""}>Start</button></div>`).join("")}
+    <h4>Network per site</h4>
+    <table class="chaos">${snapshot.sites.map((s) => `<tr><td><b>${esc(s.code)}</b></td>
+      <td><button class="mini ${s.network.enabled ? "danger" : "primary"}" data-outage="${esc(s.code)}" data-on="${s.network.enabled}">${s.network.enabled ? "Cut" : "Restore"}</button></td>
+      <td><select data-lat="${esc(s.code)}">${LATENCIES.map((ms) => `<option value="${ms}" ${ms === s.network.latency_ms ? "selected" : ""}>${ms ? `+${ms}${NB}ms` : "no latency"}</option>`).join("")}</select></td></tr>`).join("")}
+    </table>
+    <div class="control"><button class="mini" data-act="clear-chaos">Restore all networks</button></div>`;
+  root.querySelector('[data-act="world"]').onclick = (e) => post("/api/world", { enabled: !world.enabled }, e.target);
+  root.querySelector('[data-act="autopilot"]').onclick = (e) => post("/api/autopilot", { enabled: !ap.enabled }, e.target);
   root.querySelectorAll("[data-scenario]").forEach((b) => { b.onclick = () => post(`/api/scenarios/${b.dataset.scenario}/start`, {}, b); });
+  root.querySelectorAll("[data-outage]").forEach((b) => { b.onclick = () => post(`/api/sites/${b.dataset.outage}/outage`, { on: b.dataset.on === "true" }, b); });
+  root.querySelectorAll("[data-lat]").forEach((sel) => { sel.onchange = () => post(`/api/sites/${sel.dataset.lat}/latency`, { ms: Number(sel.value) }, sel); });
+  root.querySelector('[data-act="clear-chaos"]').onclick = (e) => post("/api/chaos/clear", {}, e.target);
   const stop = root.querySelector('[data-act="stop-scenario"]');
   if (stop) stop.onclick = (e) => post("/api/scenarios/stop", {}, e.target);
 }
