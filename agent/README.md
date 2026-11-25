@@ -14,6 +14,13 @@ scored by [`control/src/control/eval.py`](../control/src/control/eval.py).
 - **Cost controls:** model `gemini-3.5-flash-lite` with minimal thinking, max 400 output tokens, 6 calls/minute,
   150/day (`AGENT_DAILY_CAP`), a 15 min pause on rate limits, no retries. Measured: about 570 tokens in and 120
   out per triage. Key from `GEMINI_API_KEY` in the gitignored `.env`.
+- **A/B mode:** every other incident gets raw signals only (no rules' title, type or timeline), to measure what
+  the agent adds beyond the rules.
+- **Queries when unsure:** below 60 % confidence it may request up to 2 read-only Prometheus/LogQL queries
+  (allow-listed, last 30 min, results cut to 1,500 characters), then answers again. At most 3 calls per incident.
+- **Also writes:** the "while you were away" handover (one call per 10 min at most) and, on demand, post-mortems
+  and NIS2/CRA drafts on the reports page. Rules decide which regulation applies; a person approves; nothing is
+  sent.
 - **Eval** (`GET /api/eval`, and on the page under service levels): per scenario run since the agent went live,
   was the root cause category right (any triage in the run, and first triage only), any false "all clear" about a
   real fault, median time from incident open to summary, tokens per triage.

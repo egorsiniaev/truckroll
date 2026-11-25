@@ -36,7 +36,10 @@ def _t(iso: str) -> datetime:
 
 def evaluate(ledger_path: Path, triage_path: Path) -> dict:
     all_runs = [r for r in _read(ledger_path) if r.get("outcome", "").startswith(("completed", "stopped"))]
-    triages = sorted(_read(triage_path), key=lambda t: t["opened"])
+    every = sorted(_read(triage_path), key=lambda t: t["opened"])
+    # Triages from before 2026-11-25 ~14:00 could see scenario events for fleet-wide incidents (a leak, fixed).
+    # Records made after the fix carry a "mode"; only those are scored.
+    triages = [t for t in every if "mode" in t]
     # Only runs that started once the agent was live can be scored; earlier ones are reported, not counted.
     agent_live = min((_t(t["triaged"]) for t in triages if "triaged" in t), default=None)
     runs = [r for r in all_runs if agent_live is not None and _t(r["started"]) >= agent_live]
@@ -62,12 +65,14 @@ def evaluate(ledger_path: Path, triage_path: Path) -> dict:
             "false_all_clear": bool(first and truth != "expected" and first["all_clear"]),
             "seconds_to_summary": first["seconds_after_open"] if first else None,
             "agent_summary": first["summary"] if first else None,
+            "mode": first.get("mode", "full") if first else None,
         })
     triaged = [r for r in results if r["agent_category"] is not None]
     latencies = [r["seconds_to_summary"] for r in triaged]
     all_tokens = [(t["tokens_in"], t["tokens_out"]) for t in triages]
     return {
         "runs": len(results),
+        "triages_before_leak_fix": len(every) - len(triages),
         "runs_before_agent": len(all_runs) - len(runs),
         "runs_triaged": len(triaged),
         "accuracy": round(sum(r["correct"] for r in triaged) / len(triaged), 3) if triaged else None,
@@ -80,6 +85,9 @@ def evaluate(ledger_path: Path, triage_path: Path) -> dict:
         "avg_tokens_in": round(statistics.mean(t[0] for t in all_tokens)) if all_tokens else None,
         "avg_tokens_out": round(statistics.mean(t[1] for t in all_tokens)) if all_tokens else None,
         "by_scenario": _by_scenario(results),
+        "by_mode": {mode: {"runs": len(rs), "accuracy": round(sum(r["correct_first"] for r in rs) / len(rs), 3)}
+                    for mode in ("full", "blind") if (rs := [r for r in triaged if r["mode"] == mode])},
+        "triages_with_queries": sum(1 for t in triages if t.get("queries")),
         "runs_detail": results[-30:],
     }
 

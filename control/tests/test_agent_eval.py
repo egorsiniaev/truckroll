@@ -82,9 +82,9 @@ def test_eval_scores_against_the_ledger(tmp_path):
     ledger.write_text("\n".join(json.dumps(r) for r in rows))
     tri = [
         {"incident_id": "I1", "site": "A2-HUB", "opened": "2026-11-24T10:00:10Z", "category": "hardware",
-         "all_clear": False, "seconds_after_open": 18, "summary": "s", "tokens_in": 1800, "tokens_out": 100, "triaged": "2026-11-24T09:00:00Z"},
+         "all_clear": False, "seconds_after_open": 18, "summary": "s", "tokens_in": 1800, "tokens_out": 100, "triaged": "2026-11-24T09:00:00Z", "mode": "full"},
         {"incident_id": "I2", "site": "AMS-DEPOT", "opened": "2026-11-24T11:00:20Z", "category": "hardware",
-         "all_clear": True, "seconds_after_open": 22, "summary": "s", "tokens_in": 1600, "tokens_out": 90},
+         "all_clear": True, "seconds_after_open": 22, "summary": "s", "tokens_in": 1600, "tokens_out": 90, "mode": "blind"},
     ]
     triage.write_text("\n".join(json.dumps(t) for t in tri))
     res = evaluate(ledger, triage)
@@ -100,11 +100,11 @@ def test_eval_ignores_incidents_from_before_the_run_and_counts_any_correct_triag
                                   "started": "2026-11-24T10:00:00Z", "ended": "2026-11-24T10:06:00Z", "outcome": "completed"}))
     triage.write_text("\n".join(json.dumps(t) for t in [
         {"incident_id": "old", "site": "A2-HUB", "opened": "2026-11-24T09:50:00Z", "category": "hardware", "all_clear": False,
-         "seconds_after_open": 20, "summary": "s", "tokens_in": 1, "tokens_out": 1, "triaged": "2026-11-24T09:59:00Z"},
+         "seconds_after_open": 20, "summary": "s", "tokens_in": 1, "tokens_out": 1, "triaged": "2026-11-24T09:59:00Z", "mode": "full"},
         {"incident_id": "noise", "site": "A2-HUB", "opened": "2026-11-24T10:01:00Z", "category": "hardware", "all_clear": False,
-         "seconds_after_open": 20, "summary": "s", "tokens_in": 1, "tokens_out": 1},
+         "seconds_after_open": 20, "summary": "s", "tokens_in": 1, "tokens_out": 1, "mode": "full"},
         {"incident_id": "auth", "site": "ALL", "opened": "2026-11-24T10:02:00Z", "category": "backend", "all_clear": False,
-         "seconds_after_open": 20, "summary": "s", "tokens_in": 1, "tokens_out": 1}]))
+         "seconds_after_open": 20, "summary": "s", "tokens_in": 1, "tokens_out": 1, "mode": "full"}]))
     res = evaluate(ledger, triage)
     assert res["accuracy"] == 1.0 and res["accuracy_first"] == 0.0
     assert res["runs_detail"][0]["agent_categories"] == ["hardware", "backend"]
@@ -116,7 +116,7 @@ def test_runs_before_the_agent_existed_are_not_scored(tmp_path):
                                   "started": "2026-11-24T08:00:00Z", "ended": "2026-11-24T08:04:00Z", "outcome": "completed"}))
     triage.write_text(json.dumps({"incident_id": "I", "site": "A2-HUB", "opened": "2026-11-24T09:00:00Z", "category": "hardware",
                                   "all_clear": False, "seconds_after_open": 20, "summary": "s", "tokens_in": 1,
-                                  "tokens_out": 1, "triaged": "2026-11-24T09:00:20Z"}))
+                                  "tokens_out": 1, "triaged": "2026-11-24T09:00:20Z", "mode": "full"}))
     res = evaluate(ledger, triage)
     assert res["runs"] == 0 and res["runs_before_agent"] == 1
 
@@ -140,3 +140,29 @@ async def test_busy_gemini_retries_the_same_incident_later(tmp_path):
     m = Manager()
     await agent.tick(m, SNAP)
     assert "busy" in agent.status()["last_error"] and "INC-0001" not in agent.done
+
+
+def test_scenario_events_never_reach_the_agent_even_for_fleet_wide_incidents():
+    inc = {**INC, "site": "ALL", "stations": []}
+    snap = {**SNAP, "events": [{"kind": "scenario", "site": None, "text": "scenario started: RFID auth backend slow"},
+                               {"kind": "log", "site": "A2-HUB", "text": "A2-HUB-00001 went offline"}]}
+    text = json.dumps(build_context(inc, snap))
+    assert "scenario started" not in text and "went offline" in text
+
+
+def test_blind_mode_hides_the_rules_diagnosis():
+    from control.agent import blind_mode
+    ctx = build_context(INC, SNAP, blind=True)
+    text = json.dumps(ctx)
+    assert "HighTemperature" in text  # raw connector data stays
+    assert "reports HighTemperature" not in text and "timeline" not in ctx["incident"]
+    assert blind_mode("INC-0001") and not blind_mode("INC-0002")
+
+
+def test_only_read_only_allowlisted_queries_run():
+    from control.agent import allowed_query
+    assert allowed_query("promql", 'max(csms_station_heartbeat_age_seconds{site="A2-HUB"})')
+    assert allowed_query("logql", '{service_name="csms"} |= "A2-HUB-00001"')
+    assert not allowed_query("promql", "up; drop")
+    assert not allowed_query("logql", '{job="other"}')
+    assert not allowed_query("sql", "select 1")

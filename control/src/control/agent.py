@@ -56,20 +56,33 @@ SCHEMA = {
 }
 
 
-def build_context(inc: dict, snap: dict) -> dict:
-    """What a person on call would see. Deliberately excludes the scenario and the ledger."""
+def blind_mode(incident_id: str) -> bool:
+    """A/B: every other incident gets raw signals only, to measure what the agent adds beyond the rules."""
+    digits = "".join(ch for ch in incident_id if ch.isdigit())
+    return bool(digits) and int(digits) % 2 == 1
+
+
+def build_context(inc: dict, snap: dict, blind: bool = False) -> dict:
+    """What a person on call would see. Deliberately excludes the scenario and the ledger. Blind mode also drops
+    the rules' title, type and timeline, leaving only raw site, charger, backend and event data."""
     site = next((s for s in snap.get("sites", []) if s["code"] == inc["site"]), None)
     stations = [s for s in snap.get("stations", []) if s["id"] in inc["stations"]]
     if not stations and site:
         stations = [s for s in snap.get("stations", []) if s["site"] == site["code"]][:6]
+    # Scenario events name the injected fault: that is the eval's answer, so the agent never sees them.
     events = [e["text"] for e in snap.get("events", [])
-              if inc["site"] in (e.get("site"), "ALL") or e.get("station") in inc["stations"]][:8]
+              if e.get("kind") != "scenario"
+              and (inc["site"] in (e.get("site"), "ALL") or e.get("station") in inc["stations"])][:8]
+    incident = {
+        "kind": inc["kind"], "severity": inc["severity"], "title": inc["title"], "site": inc["site"],
+        "stations": inc["stations"], "age_s": inc["age_s"],
+        "timeline": [{"type": t["type"], "actor": t["actor"], "text": t["text"]} for t in inc["timeline"]],
+    }
+    if blind:
+        incident = {"alert": f"something is wrong at {inc['site']}", "site": inc["site"], "stations": inc["stations"],
+                    "age_s": inc["age_s"]}
     ctx = {
-        "incident": {
-            "kind": inc["kind"], "severity": inc["severity"], "title": inc["title"], "site": inc["site"],
-            "stations": inc["stations"], "age_s": inc["age_s"],
-            "timeline": [{"type": t["type"], "actor": t["actor"], "text": t["text"]} for t in inc["timeline"]],
-        },
+        "incident": incident,
         "backend": snap.get("backend", {}),
         "recent_events": events,
         "price": {k: (snap.get("prices") or {}).get(k) for k in ("now_eur_mwh", "expensive")},
@@ -94,6 +107,31 @@ def build_context(inc: dict, snap: dict) -> dict:
     return ctx
 
 
+QUERY_CONFIDENCE = 0.6
+MAX_QUERIES = 2
+QUERY_RESULT_CHARS = 1500
+QUERY_PREFIXES = ("csms_", "truckroll_", "ocpp_", "sum", "max", "min", "avg", "rate", "increase", "count")
+QUERY_SYSTEM = (
+    "You are unsure about this incident. You may request up to 2 read-only queries to look at the last 30 minutes. "
+    "Prometheus metrics: csms_station_connected, csms_station_heartbeat_age_seconds, csms_connector_status{status}, "
+    "csms_connector_error{error_code}, csms_connector_power_watts, ocpp_messages_total{action}, "
+    "truckroll_site_power_watts, truckroll_site_queue_cars. Loki: {service_name=\"csms\"} logs, filter with |= . "
+    "Ask only for what would change your verdict."
+)
+QUERY_SCHEMA = {"type": "OBJECT", "properties": {"queries": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+    "kind": {"type": "STRING", "enum": ["promql", "logql"]}, "query": {"type": "STRING"}}, "required": ["kind", "query"]}}},
+    "required": ["queries"]}
+
+
+def allowed_query(kind: str, query: str) -> bool:
+    q = query.strip()
+    if len(q) > 300 or any(bad in q for bad in (";", "\n")):
+        return False
+    if kind == "promql":
+        return q.startswith(QUERY_PREFIXES)
+    return kind == "logql" and q.startswith('{service_name="csms"}')
+
+
 class TriageAgent:
     def __init__(self, http: httpx.AsyncClient, api_key: str, model: str, log_path: Path | None,
                  daily_cap: int = 150, per_minute: int = 6, price_in: float = 0.264, price_out: float = 2.20,
@@ -104,6 +142,8 @@ class TriageAgent:
         self.price_in, self.price_out, self.free_tier = price_in, price_out, free_tier
         self.clock = clock
         self.enabled = True
+        self.prometheus_url = "http://prometheus:9090"
+        self.loki_url = "http://loki:3100"
         self.done: set[str] = set()
         self.calls_recent: deque[float] = deque()
         self.paused_until = 0.0
@@ -144,13 +184,70 @@ class TriageAgent:
             return
         inc = max(todo, key=lambda i: i["age_s"])  # oldest first
         self.done.add(inc["id"])
-        verdict = await self._ask_model(build_context(inc, snap))
+        blind = blind_mode(inc["id"])
+        context = build_context(inc, snap, blind=blind)
+        verdict = await self._ask_model(context)
+        if verdict is not None and float(verdict.get("confidence", 1)) < QUERY_CONFIDENCE and self._budget_ok():
+            results = await self._investigate(context)
+            if results:
+                second = await self._ask_model({**context, "query_results": results,
+                                                 "first_guess": {k: verdict[k] for k in ("category", "summary")}})
+                if second is not None:
+                    second["_queries"] = [r["query"] for r in results]
+                    verdict = second
         if verdict is None:
             if self.last_error and self.last_error.startswith("Gemini busy"):
                 self.done.discard(inc["id"])  # temporary: try this incident again
             return
+        verdict["_blind"] = blind
         await manager.agent_verdict(inc["id"], verdict, NEXT_STEPS.get(verdict["next_step"]))
         self._record(inc, verdict)
+
+    async def _investigate(self, context: dict) -> list[dict]:
+        """One call to choose up to 2 queries, run them read-only, return trimmed results."""
+        body = {
+            "systemInstruction": {"parts": [{"text": QUERY_SYSTEM}]},
+            "contents": [{"role": "user", "parts": [{"text": json.dumps(context, separators=(",", ":"))}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 200, "responseMimeType": "application/json",
+                                 "responseSchema": QUERY_SCHEMA,
+                                 "thinkingConfig": ({"thinkingLevel": "minimal"} if self.model.startswith("gemini-3")
+                                                    else {"thinkingBudget": 0})},
+        }
+        self.calls_recent.append(self.clock())
+        self.calls_today += 1
+        try:
+            res = await self.http.post(URL.format(model=self.model), json=body, timeout=30,
+                                       headers={"x-goog-api-key": self._key})
+            data = res.json() if res.status_code == 200 else {}
+            usage = data.get("usageMetadata", {})
+            self.tokens_in += usage.get("promptTokenCount", 0)
+            self.tokens_out += usage.get("candidatesTokenCount", 0)
+            wanted = json.loads(data["candidates"][0]["content"]["parts"][0]["text"])["queries"][:MAX_QUERIES]
+        except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError, ValueError):
+            return []
+        out = []
+        for q in wanted:
+            if not allowed_query(q.get("kind", ""), q.get("query", "")):
+                out.append({"query": q.get("query", ""), "result": "refused: not an allowed read-only query"})
+                continue
+            out.append({"query": q["query"], "result": await self._run_query(q["kind"], q["query"])})
+        return out
+
+    async def _run_query(self, kind: str, query: str) -> str:
+        try:
+            if kind == "promql":
+                res = await self.http.get(f"{self.prometheus_url}/api/v1/query", params={"query": query}, timeout=10)
+                data = res.json().get("data", {}).get("result", [])
+                text = json.dumps([{"m": r.get("metric"), "v": r.get("value", [None, None])[1]} for r in data])
+            else:
+                end = time.time_ns()
+                res = await self.http.get(f"{self.loki_url}/loki/api/v1/query_range", timeout=10, params={
+                    "query": query, "start": end - 30 * 60 * 10**9, "end": end, "limit": 20})
+                streams = res.json().get("data", {}).get("result", [])
+                text = json.dumps([v[1] for s in streams for v in s.get("values", [])][:20])
+        except (httpx.HTTPError, ValueError) as exc:
+            return f"query failed: {exc.__class__.__name__}"
+        return text[:QUERY_RESULT_CHARS]
 
     async def _ask_model(self, context: dict) -> dict | None:
         body = {
@@ -212,6 +309,7 @@ class TriageAgent:
             "seconds_after_open": inc["age_s"] + verdict["_latency_s"], "category": verdict["category"],
             "all_clear": verdict["all_clear"], "next_step": verdict["next_step"], "confidence": verdict["confidence"],
             "summary": verdict["summary"], "model": self.model, "tokens_in": tokens_in, "tokens_out": tokens_out,
+            "mode": "blind" if verdict.get("_blind") else "full", "queries": verdict.get("_queries", []),
         }
         try:
             with self.log_path.open("a") as f:
