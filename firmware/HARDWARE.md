@@ -12,7 +12,7 @@ Low voltage only: 12 V DC max. The relay is rated for mains, but it only ever sw
 | IRFZ44N, P16NF06 | Not used | Need ~10 V on the gate; won't switch fully from 3.3 V |
 | 7БЕ0 (?) | Unknown | Check the full marking |
 | 3-channel relay | **Contactor**: clicks closed when charging starts, opens on stop or fault | Real chargers have one; the click is great on camera. Check the module triggers from 3.3 V (many are active-low, 5 V coil) |
-| Latching button | "Cable plugged in" -> status `Preparing` | Replaces the reed switch |
+| GX12 4-pin plug + socket | Charging cable: pins 1-2 carry 12 V to the taxi, pins 3-4 bridged in the taxi = plug present -> `Preparing` | Replaces the latching button (now spare) |
 | Momentary button 1 | Spare start/stop (if RFID misbehaves) | |
 | Momentary button 2 | Fault injection -> `StatusNotification: Faulted` | |
 | RGB LED (or 3 single LEDs) | Status: green Available, blue Charging, red Faulted, amber grid stress | 220 Ω per channel |
@@ -26,13 +26,15 @@ Low voltage only: 12 V DC max. The relay is rated for mains, but it only ever sw
 | 12 V white LED strip, short piece | The "car" that dims | Single-colour, 2 wires. Target ~0.5-0.7 A: about 8-10 cut segments of 5050 (~40 cm). Needs a 12 V supply |
 | LM2596 buck module | 12 V -> 5 V for the ESP32 (5V pin) | Set to 5.0 V with a multimeter **before** connecting. Don't feed the 5V pin and USB at the same time |
 
+Delivered since: INA226, 2 rings (16 LEDs, 68 mm outside, 54 mm inside), 74AHCT125, M3 heat inserts.
+Cars: the 1:24 taxi charges; the 1:38 pickup waits in the queue.
+
 ## Still needed
 
 | Part | Why | Priority |
 |---|---|---|
-| INA226 (or INA219) module | Real voltage/current for `MeterValues` | must |
+| 2 pairs GX12 4-pin (panel socket + cable plug) | Charging cable with plug detect | must |
 | 12 V 2 A supply | Only if the LED strip doesn't come with one | if needed |
-| WS2812B ring, 16 LEDs (69 mm) | Status on camera; replaces the RGB LED | buying. 5 V from the buck, 330 Ω on data, 1000 µF across 5 V/GND, brightness capped in code |
 | Breadboard, jumpers, resistors (100 Ω, 220 Ω, 10 k), 1N4007 | Wiring; diode across the relay coil if the module lacks one | if not on hand |
 
 ## Pin plan (ESP32 DevKitC V4)
@@ -42,10 +44,10 @@ Low voltage only: 12 V DC max. The relay is rated for mains, but it only ever sw
 | I2C SDA / SCL (OLED + INA) | 21 / 22 | shared bus |
 | Load PWM -> IRLZ44N gate | 25 | LEDC, ~5 kHz (avoids stripes on the webcam) |
 | Relay (contactor) | 26 | check active level |
-| Cable plugged (latching) | 32 | `INPUT_PULLUP`, to GND |
+| Plug present (GX12 pin 3) | 32 | `INPUT_PULLUP`; GX12 pin 4 to GND |
 | Badge button | 33 | `INPUT_PULLUP`, to GND |
 | Fault button | 27 | `INPUT_PULLUP`, to GND |
-| WS2812B ring data | 16 | 330 Ω series resistor; if it flickers, add a 74AHCT125 level shifter |
+| WS2812 rings data (ring 1 -> ring 2 chained) | 16 | via 74AHCT125 (5 V), 330 Ω series resistor |
 | RGB LED R / G / B (fallback) | 16 / 17 / 4 | only if no ring |
 | DS18B20 data | 13 | 4.7 k pull-up to 3.3 V |
 | RC522 SCK / MISO / MOSI / NSS / RST | 18 / 19 / 23 / 5 / 14 | VCC to 3V3, IRQ not connected |

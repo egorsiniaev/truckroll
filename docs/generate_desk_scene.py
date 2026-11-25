@@ -69,14 +69,14 @@ parts.append(poly([p(240, 105), p(270, 105), p(258, 120), p(278, 120), p(236, 14
 parts.append(poly([p(380, 70), p(500, 70), p(500, 160), p(380, 160)], "#e5e7eb", "#94a3b8", 1, 'stroke-dasharray="5 4"'))
 
 # Grid box (back right) with ring 2 on top.
-parts.append(box(160, 6, 0, 80, 45, 70, "#f1f5f9", "#cbd5e1", "#94a3b8"))
-parts.append(poly(circle_z(200, 28, 70, 18), "none", "#f59e0b", 6))
-parts.append(poly(circle_z(200, 28, 70, 18), "none", "#fde68a", 2))
-parts.append(rect_y(172, 51, 30, 56, 22, "#fef3c7"))
-parts.append(f'<text x="{p(200, 51, 37)[0]:.1f}" y="{p(200, 51, 37)[1]:.1f}" font-size="11" text-anchor="middle" '
+parts.append(box(118, 0, 0, 80, 80, 70, "#f1f5f9", "#cbd5e1", "#94a3b8"))
+parts.append(poly(circle_z(158, 40, 70, 30), "none", "#f59e0b", 6))
+parts.append(poly(circle_z(158, 40, 70, 30), "none", "#fde68a", 2))
+parts.append(rect_y(130, 80, 30, 56, 22, "#fef3c7"))
+parts.append(f'<text x="{p(158, 80, 37)[0]:.1f}" y="{p(158, 80, 37)[1]:.1f}" font-size="11" text-anchor="middle" '
              f'fill="#92400e" font-weight="700">GRID</text>')
 # Cable from grid box to the charger, dashed like the page's power flow.
-gx, gy = p(160, 30, 4)
+gx, gy = p(118, 40, 4)
 cx_, cy_ = p(110, 50, 4)
 parts.append(f'<path d="M{gx:.1f},{gy:.1f} L{cx_:.1f},{cy_:.1f}" stroke="#f59e0b" stroke-width="2.5" '
              f'stroke-dasharray="7 5" fill="none"/>')
@@ -137,7 +137,7 @@ labels = [
     (p(70, 70, 55), (330, 320), ["Emergency button", "Faulted, relay opens"]),
     (p(100, 70, 25), (330, 385), ["Plug holster", "for when the cable is unplugged"]),
     (p(80, 135, 6), (330, 470), ["Card rack", "fleet · expired · unknown"]),
-    (p(200, 28, 70), (930, 130), ["Ring 2 on the grid box", "site load vs grid cap", "pulses on grid requests"]),
+    (p(158, 40, 70), (930, 130), ["Ring 2 on the grid box", "site load vs grid cap", "pulses on grid requests"]),
     (p(256, 119, 72), (930, 300), ["Roof sign", "optional: lit while charging"]),
     (p(450, 118, 30), (930, 480), ["Waiting car (1:38)", "the queue, no electronics"]),
     (p(182, 153, 26), (470, 590), ["GX12 4-pin socket", "2 pins 12 V, 2 pins plug detect"]),
@@ -150,7 +150,7 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 660" font-fa
 <defs><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter></defs>
 <rect width="1100" height="660" fill="#fafaf9"/>
 <text x="24" y="36" font-size="20" font-weight="700" fill="#0f172a">Truckroll desk charger: planned diorama</text>
-<text x="24" y="58" font-size="12.5" fill="#475569">Two printed base tiles of 250 x 180 mm (Kobra 3 bed: 250 x 250). Charger 80 x 50 x 190 mm, out of scale on purpose so the ring, screen and reader fit.</text>
+<text x="24" y="58" font-size="12.5" fill="#475569">Two printed base tiles of 250 x 180 mm (Kobra 3 bed: 250 x 250). Charger 90 x 55 x 200 mm, out of scale on purpose so the ring, screen and reader fit.</text>
 {"".join(parts)}
 </svg>'''
 Path(__file__).with_name("desk-scene.svg").write_text(svg)

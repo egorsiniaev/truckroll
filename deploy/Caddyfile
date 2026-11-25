@@ -1,0 +1,14 @@
+{$TRUCKROLL_HOST} {
+	encode zstd gzip
+	# Whole site behind a login until the public page exists: the control panel can start scenarios.
+	import /etc/caddy/secrets/auth.caddy
+	reverse_proxy control:8000 {
+		flush_interval -1
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}

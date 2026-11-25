@@ -1,0 +1,27 @@
+# Server overrides: docker compose -f compose.yaml -f compose.server.yaml up -d
+# Only Caddy is reachable from outside; everything else stays on the Docker network or localhost.
+services:
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      TRUCKROLL_HOST: truckroll.siniaev.dev
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Login hash, created on the server only (never in git). Caddy refuses to start without it.
+      - /etc/truckroll:/etc/caddy/secrets:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [control]
+    restart: unless-stopped
+
+  csms:
+    # No public OCPP port yet; the desk charger will come in through Caddy over TLS.
+    ports: !reset []
+
+volumes:
+  caddy-data:
+  caddy-config:
