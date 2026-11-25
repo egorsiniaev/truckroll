@@ -27,6 +27,7 @@ MAX_STOP_ATTEMPTS = 3  # each start is a simulator round trip; keep one tick sho
 # A transaction can sit in any of these; a charger reporting the wrong one must not strand the session.
 ADOPTABLE = {"Charging", "SuspendedEV", "SuspendedEVSE", "Preparing", "Finishing"}
 MIN_POWER_FOR_ETA_W = 200
+MASS_INTERRUPT = 3  # this many sessions cut at once on a site = the chargers restarted: refill like a warm start
 WARM_START_HOURS = 0.5  # on start, seed each site with about half an hour of arrivals so the map isn't empty  # a requested session that never shows up on the CSMS goes back to the queue
 DONE_SHARE = 0.9  # leaving with 90 % of what you wanted counts as a full session
 
@@ -100,6 +101,7 @@ class DemandEngine:
         self._ids = itertools.count(1)
         self._last = self.clock()
         self._warm = False
+        self._reseed: set[str] = set()  # sites emptied by a restart, refilled once their chargers are back
 
     def status(self) -> dict:
         out = {}
@@ -146,7 +148,7 @@ class DemandEngine:
                 setattr(st, k, v)
             self.state[code] = st
         self._ids = itertools.count(data.get("next_id", 1))
-        self._warm = True  # the restored queue replaces the warm start
+        # The first tick tops each site up to a warm start, counting the restored queue and sessions.
 
     def session_info(self, stations: Mapping[str, Mapping]) -> dict[str, dict]:
         """Per "station#connector": what the car needs, what it has, and when it should be done at current power."""
@@ -187,12 +189,21 @@ class DemandEngine:
             prof = PROFILES.get(site.get("demand", ""), PROFILES["retail"])
             rate = prof.cars_per_hour * shares.get(code, 0.6) * factors.get(code, 1.0)
             self.rates[code] = rate
-            arrivals = round(rate * WARM_START_HOURS) if not self._warm else self._arrivals(code, rate, dt)
+            site_online = all(s.get("connected") for s in stations.values() if s["site"] == code)
+            refill = code in self._reseed and site_online and not st.sessions
+            if refill:
+                self._reseed.discard(code)
+                texts.append(f"{code}: chargers back after a restart; drivers return")
+            warm = not self._warm or refill
+            if warm:  # top up to half an hour of arrivals, counting cars already there
+                arrivals = max(0, round(rate * WARM_START_HOURS) - len(st.queue) - len(st.sessions))
+            else:
+                arrivals = self._arrivals(code, rate, dt)
             connectors = sum(len(s.get("connectors", [])) for s in stations.values() if s["site"] == code) or 1
             # What the app shows: people ahead of you / how fast connectors free up.
             st.expected_wait_s = len(st.queue) / (connectors / prof.session_h) * 3600
             patience_s = sum(prof.patience_min) / 2 * 60
-            divert = min(MAX_DIVERT, st.expected_wait_s / patience_s) if prof.checks_app and self._warm else 0.0
+            divert = min(MAX_DIVERT, st.expected_wait_s / patience_s) if prof.checks_app and not warm else 0.0
             for _ in range(arrivals):
                 need = self.rng.uniform(*prof.need_kwh) * 1000
                 if divert and self.rng.random() < divert:
@@ -202,7 +213,10 @@ class DemandEngine:
                 st.queue.append(Car(next(self._ids), code, need, now,
                                     self.rng.uniform(*prof.patience_min) * 60, self.rng.choice(self.id_tags)))
             texts += self._adopt(code, st, prof, stations, now)
+            cut_before = st.interrupted
             texts += await self._progress(code, st, stations, now)
+            if st.interrupted - cut_before >= MASS_INTERRUPT and not st.sessions:
+                self._reseed.add(code)
             texts += self._give_up(code, st, now)
             await self._assign(code, st, stations, now)
         self._warm = True

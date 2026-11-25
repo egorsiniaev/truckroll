@@ -48,6 +48,35 @@ async def test_warm_start_seeds_half_an_hour_of_arrivals():
     assert len(eng.state["S"].queue) == 15  # 30 cars/h x 0.5 h, all waiting: no free connector
 
 
+async def test_site_refills_after_its_chargers_restart_and_come_back():
+    eng, t, _ = engine()
+    Session = __import__("control.demand", fromlist=["Session"]).Session
+    Car = __import__("control.demand", fromlist=["Car"]).Car
+    st = eng.state["S"]
+    for cid in (1, 2, 3):
+        st.sessions[("S-1", cid)] = Session(Car(cid, "S", 9e9, 0, 9e9, "TAG"), "S-1", cid, 0.0, 0.0, 100 + cid)
+    offline = {"stations": [{"id": "S-1", "site": "S", "connected": False, "connectors": [
+        {"id": c, "status": "Unavailable", "transaction_id": None, "energy_wh": 0} for c in (1, 2, 3)]}]}
+    t[0] += 5
+    await eng.tick(offline, {"S": 1.0}, {"S": 0.0})  # simulator restarting: all three sessions cut
+    assert not st.sessions and st.interrupted == 3 and not st.queue
+    t[0] += 5
+    await eng.tick(offline, {"S": 1.0}, {"S": 1.0})  # still offline: no refill yet
+    assert not st.queue
+    t[0] += 5
+    texts = await eng.tick(snap([("S-1", 1, "Available", None, 0)]), {"S": 1.0}, {"S": 1.0})
+    assert any("drivers return" in x for x in texts)
+    assert len(st.queue) + len(st.sessions) == 15  # half an hour of arrivals at 30 cars/h
+
+
+async def test_first_tick_tops_up_a_restored_site_instead_of_adding_a_full_warm_start():
+    eng = DemandEngine([SITE], Clients(), ["TAG"], rng=random.Random(3), clock=lambda: 0.0)
+    Car = __import__("control.demand", fromlist=["Car"]).Car
+    eng.state["S"].queue.extend(Car(i, "S", 5000, 0, 9e9, "TAG") for i in range(10))
+    await eng.tick(snap([("S-1", 1, "Charging", 5, 0)]), {"S": 1.0}, {"S": 1.0})
+    assert len(eng.state["S"].queue) == 15  # 10 restored + 5 to reach half an hour of arrivals
+
+
 async def test_arrivals_take_free_connectors_and_the_rest_queue():
     eng, t, _ = engine()
     for _ in range(20):

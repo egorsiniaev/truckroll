@@ -25,7 +25,7 @@ def test_demand_queue_sessions_and_counters_survive():
     st2 = again.state["S"]
     assert [c.id for c in st2.queue] == [7] and st2.queue[0].arrived == 20.0 - 70.0  # waited 10 s + 60 s down
     assert st2.sessions[("S-1", 1)].tx == 461 and st2.sessions[("S-1", 1)].start_wh == 1200.0
-    assert (st2.abandoned, st2.diverted) == (3, 4) and again._warm is True
+    assert (st2.abandoned, st2.diverted) == (3, 4)
 
 
 def test_open_incident_with_pending_timer_survives():

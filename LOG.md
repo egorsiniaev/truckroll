@@ -22,3 +22,10 @@ Hours spent, what the agent got wrong, what I fixed by hand. Budget: 40 h.
 
 ## 2026-11-25: 24 meter-jump incidents closed by a restart bug
 A redeploy at 13:29:31Z restored a timer saved by the previous build as process-clock time and read it as wall time, so the 30-minute quiet check passed unchecked and 24 incidents closed at once with recovery times of 3-5 min. Fixed: timers are saved tagged as wall time, recovery time comes from the stored opening time, and a dropped timer restarts the quiet period. The 24 records were corrected in place ("closed by bug", true open time, billing released at review).
+
+## 2026-11-25: empty map on the server
+Every deploy rebuilt the simulator from its git source, which recreated it and cut all charging sessions (73
+"interrupted", 0 completed). After a restart the map refilled only through new arrivals (~56 cars/h), and the warm
+start was skipped whenever any state had been restored. Fixed: deploys build only our services; the first tick tops
+each site up to half an hour of arrivals, and a site whose sessions are all cut at once refills when its chargers
+are back online.
