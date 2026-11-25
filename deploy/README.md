@@ -7,7 +7,7 @@ Code is copied with rsync (no GitHub credentials on the server). Secrets exist o
 deploy/push.sh        # rsync the repo, then build and restart on the server
 ```
 
-Grafana and Prometheus have no public port. Open them through an SSH tunnel:
+Grafana: https://truckroll.siniaev.dev/grafana/ (same login). Prometheus has no public route; use a tunnel:
 
 ```bash
 ssh -N -L 3001:localhost:3000 -L 9091:localhost:9090 root@142.132.244.71

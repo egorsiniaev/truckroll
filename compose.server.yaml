@@ -20,8 +20,15 @@ services:
 
   control:
     environment:
-      # Through the SSH tunnel; 3001 so it doesn't clash with a local stack's Grafana on 3000.
-      GRAFANA_URL: http://localhost:3001/d/truckroll-fleet
+      GRAFANA_URL: /grafana/d/truckroll-fleet
+
+  grafana:
+    environment:
+      # Served at /grafana behind the site login; no admin rights for anonymous users on the server.
+      GF_SERVER_ROOT_URL: https://truckroll.siniaev.dev/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
+      GF_AUTH_BASIC_ENABLED: "false"
 
   csms:
     # No public OCPP port yet; the desk charger will come in through Caddy over TLS.
