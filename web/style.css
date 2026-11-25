@@ -515,3 +515,22 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 /* Chains have no spaces between steps, so wrap them as flex items. */
 .inc-row .chain { display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 2px; min-width: 0; }
 .inc-row .line small { flex: 0 1 auto; white-space: normal; text-align: right; min-width: 0; }
+
+/* Phones: sites stacked down the page, incidents as a bottom sheet with a one-line legend on top. */
+@media (max-width: 700px) {
+  #scene { height: auto; }
+  .zoom { display: none; }  /* swipe up and down scrolls through the sites; tap one for details */
+  .feed { position: fixed; left: 0; right: 0; top: auto; bottom: 0; width: auto; z-index: 5; margin: 0; max-height: 72vh;
+          border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px #0f172a33; background: #fff; padding-bottom: env(safe-area-inset-bottom); }
+  .feed-body { max-height: none; flex: 1 1 auto; min-height: 0; }
+  .feed-head { padding: 8px 14px; }
+  /* Collapsed: the header, any question waiting for an answer and the scenario line stay visible. */
+  .feed.collapsed .feed-body { display: block; padding-bottom: 0; }
+  .feed.collapsed #incidents, .feed.collapsed #log-toggle, .feed.collapsed #log { display: none; }
+  .feed.collapsed .questions:empty { display: none; }
+  .feed .legend { position: static; order: 0; margin: 0; padding: 8px 14px 0; box-shadow: none; background: none;
+                  gap: 4px 10px; font-size: 10.5px; flex-wrap: wrap; justify-content: center; }
+  .feed .legend .sep { display: none; }
+  .scenario { padding: 6px 14px 8px; }
+  .panel { margin: 0 8px 12px; }
+}

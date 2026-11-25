@@ -1,6 +1,6 @@
 // Wires the live stream to the scene, header, incident feed and panel.
 import { esc, post, renderControls, renderKpi, renderSite, renderSlo, renderStation } from "./panel.js";
-import { buildScene, screenPos, updateScene } from "./scene.js";
+import { buildScene, contentBox, screenPos, updateScene } from "./scene.js";
 
 const NB = " ";
 const svg = document.getElementById("scene");
@@ -46,8 +46,22 @@ document.querySelectorAll(".tabs button").forEach((b) => { b.onclick = () => { s
 
 // Pan and zoom: drag the map, wheel or buttons to zoom. A drag never counts as a click.
 // Wide screens leave room at the top for the incidents strip; narrow ones show incidents below the map.
+// Phones stack the sites vertically and fit the map to them; the page scrolls through it.
 const NARROW = matchMedia("(max-width: 1100px)");
-const homeView = () => (NARROW.matches ? { x: -800, y: -520, w: 1600, h: 1000 } : { x: -800, y: -700, w: 1600, h: 1180 });
+const PHONE = matchMedia("(max-width: 700px)");
+const layout = () => (PHONE.matches ? "column" : "grid");
+function homeView() {
+  if (PHONE.matches) {
+    const b = contentBox(svg);
+    if (b) {
+      const pad = 12;
+      svg.style.aspectRatio = `${b.w + 2 * pad} / ${b.h + 2 * pad}`;
+      return { x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad, h: b.h + 2 * pad };
+    }
+  }
+  svg.style.aspectRatio = "";
+  return NARROW.matches ? { x: -800, y: -520, w: 1600, h: 1000 } : { x: -800, y: -700, w: 1600, h: 1180 };
+}
 let vb = homeView();
 const applyView = () => { svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); renderCallouts(); };
 applyView();
@@ -67,6 +81,7 @@ window.addEventListener("pointermove", (e) => {
   applyView();
 });
 NARROW.addEventListener("change", () => { vb = homeView(); applyView(); });
+PHONE.addEventListener("change", () => { builtFor = null; placeLegend(); render(); });
 // A vertical swipe on a phone scrolls the page: the browser cancels the pointer, so drop the drag.
 window.addEventListener("pointercancel", () => { drag = null; svg.classList.remove("dragging"); });
 window.addEventListener("pointerup", () => {
@@ -105,11 +120,25 @@ document.getElementById("zoom-in").onclick = () => zoom(1 / 1.25);
 document.getElementById("zoom-out").onclick = () => zoom(1.25);
 document.getElementById("zoom-home").onclick = () => { vb = homeView(); applyView(); };
 
-// Incidents panel: collapsed state survives reloads.
-if (localStorage.getItem("feedCollapsed") === "1") feedBox.classList.add("collapsed");
+// Incidents panel: collapsed state survives reloads. On phones it's a bottom sheet, collapsed by default.
+const feedKey = () => (PHONE.matches ? "feedCollapsedPhone" : "feedCollapsed");
+const feedDefault = () => (PHONE.matches ? "1" : "0");
+feedBox.classList.toggle("collapsed", (localStorage.getItem(feedKey()) ?? feedDefault()) === "1");
+// On phones the legend rides on top of the sheet; elsewhere it floats over the map.
+const legend = document.querySelector(".legend");
+const legendHome = legend.parentElement;
+function placeLegend() {
+  if (PHONE.matches) feedBox.prepend(legend); else legendHome.append(legend);
+  feedBox.classList.toggle("collapsed", (localStorage.getItem(feedKey()) ?? feedDefault()) === "1");
+}
+placeLegend();
+// Keep the page's last content clear of the bottom sheet.
+new ResizeObserver(() => {
+  document.body.style.paddingBottom = PHONE.matches ? `${feedBox.offsetHeight + 8}px` : "";
+}).observe(feedBox);
 document.getElementById("feed-toggle").onclick = () => {
   const collapsed = feedBox.classList.toggle("collapsed");
-  localStorage.setItem("feedCollapsed", collapsed ? "1" : "0");
+  localStorage.setItem(feedKey(), collapsed ? "1" : "0");
   document.getElementById("feed-toggle").setAttribute("aria-expanded", String(!collapsed));
 };
 document.getElementById("log-toggle").onclick = (e) => {
@@ -297,9 +326,12 @@ function renderPanel() {
 function render() {
   if (!snapshot) return;
   const key = snapshot.stations.map((s) => s.id).join(",");
-  if (key && key !== builtFor) {
-    buildScene(svg, meta.sites, snapshot.stations, ctx.select);
-    builtFor = key;
+  const buildKey = `${layout()}|${key}`;
+  if (key && buildKey !== builtFor) {
+    buildScene(svg, meta.sites, snapshot.stations, ctx.select, layout());
+    builtFor = buildKey;
+    vb = homeView();
+    applyView();
   }
   updateScene(snapshot, selected);
   renderHeader();

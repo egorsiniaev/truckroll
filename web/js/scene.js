@@ -12,9 +12,13 @@ const PLUG_COLORS = {
 const WITH_CAR = new Set(Object.keys(PLUG_COLORS));
 const SIZE = 16;
 // Site centres on the isometric axes; screen order: top-left, top-right, bottom-left, bottom-right.
-const CENTERS = [[-20, 0], [0, -20], [0, 20], [20, 0]];
+// "column" (phones): the sites on one diagonal, which the isometric view draws as a vertical stack.
+const LAYOUTS = {
+  grid: { centers: [[-20, 0], [0, -20], [0, 20], [20, 0]], routeYFirst: [true, false, false, true], ground: 32 },
+  column: { centers: [[-36, -36], [-12, -12], [12, 12], [36, 36]], routeYFirst: [true, false, true, false], ground: 48 },
+};
 // Overhead line route from the substation: along y then x, or x then y, so it stays in the gaps between sites.
-const ROUTE_Y_FIRST = [true, false, false, true];
+let ROUTE_Y_FIRST = LAYOUTS.grid.routeYFirst;
 const PLATFORM_COLORS = ["#e8eef7", "#eef3ea", "#f3eee6", "#ebe9f4"];
 // Cars are just cars: a mix of everyday colours. The small light on each one is the connector state.
 // No red, green, yellow or blue: those colours mean status on this map.
@@ -26,10 +30,13 @@ const LINE_Z = 2.2;
 
 let refs = null;
 
-export function buildScene(svg, sites, stations, onSelect) {
+export function buildScene(svg, sites, stations, onSelect, layout = "grid") {
+  const L = LAYOUTS[layout] ?? LAYOUTS.grid;
+  ROUTE_Y_FIRST = L.routeYFirst;
   svg.replaceChildren();
   refs = { sites: {}, stations: {}, onSelect };
-  svg.append(el("polygon", { class: "ground", points: pts([[-32, -32, 0], [32, -32, 0], [32, 32, 0], [-32, 32, 0]]) }));
+  const G = L.ground;
+  svg.append(el("polygon", { class: "ground", points: pts([[-G, -G, 0], [G, -G, 0], [G, G, 0], [-G, G, 0]]) }));
   const gridLayer = el("g", { class: "grid-layer" });
   const siteLayer = el("g", { class: "site-layer" });
   const labelLayer = el("g", { class: "label-layer" });
@@ -42,7 +49,7 @@ export function buildScene(svg, sites, stations, onSelect) {
   buildSubstation(gridLayer);
 
   sites.forEach((site, i) => {
-    const [cx, cy] = CENTERS[i % CENTERS.length];
+    const [cx, cy] = L.centers[i % L.centers.length];
     const siteStations = stations.filter((s) => s.site === site.code).sort((a, b) => a.id.localeCompare(b.id));
     refs.sites[site.code] = buildSite(siteLayer, labelLayer, gridLayer, site, siteStations, cx - SIZE / 2, cy - SIZE / 2, i);
   });
@@ -238,8 +245,7 @@ function buildCar(x, y, color) {
 
 function buildLabel(layer, site, ox, oy, index) {
   // Anchor on the platform's outer corner, so each label clearly belongs to one site.
-  const [wx, wy] = CENTERS[index % CENTERS.length];
-  const isLeft = wx - wy < 0;
+  const isLeft = ox - oy < 0;  // left half of the screen (same test as the site centre)
   const [px, py] = isLeft ? iso(ox, oy + SIZE, 0) : iso(ox + SIZE, oy, 0);
   const ax = px + (isLeft ? 30 : -140);
   const ay = py - 150;
@@ -295,6 +301,14 @@ function setTag(label, text) {
   label.tagRect.setAttribute("width", width);
   label.tagText.setAttribute("x", label.w / 2 - width / 2 - 8);
   label.tagText.textContent = text;
+}
+
+// The drawn content (sites, labels, power lines), without the ground: what a "fit" view should show.
+export function contentBox(svg) {
+  const boxes = [".grid-layer", ".site-layer", ".label-layer"].map((c) => svg.querySelector(c)?.getBBox()).filter(Boolean);
+  if (!boxes.length) return null;
+  const x = Math.min(...boxes.map((b) => b.x)), y = Math.min(...boxes.map((b) => b.y));
+  return { x, y, w: Math.max(...boxes.map((b) => b.x + b.width)) - x, h: Math.max(...boxes.map((b) => b.y + b.height)) - y };
 }
 
 export function updateScene(snapshot, selected) {
