@@ -12,13 +12,9 @@ const PLUG_COLORS = {
 const WITH_CAR = new Set(Object.keys(PLUG_COLORS));
 const SIZE = 16;
 // Site centres on the isometric axes; screen order: top-left, top-right, bottom-left, bottom-right.
-// "column" (phones): the sites on one diagonal, which the isometric view draws as a vertical stack.
-const LAYOUTS = {
-  grid: { centers: [[-20, 0], [0, -20], [0, 20], [20, 0]], routeYFirst: [true, false, false, true], ground: 32 },
-  column: { centers: [[-36, -36], [-12, -12], [12, 12], [36, 36]], routeYFirst: [true, false, true, false], ground: 48 },
-};
+const CENTERS = [[-20, 0], [0, -20], [0, 20], [20, 0]];
 // Overhead line route from the substation: along y then x, or x then y, so it stays in the gaps between sites.
-let ROUTE_Y_FIRST = LAYOUTS.grid.routeYFirst;
+const ROUTE_Y_FIRST = [true, false, false, true];
 const PLATFORM_COLORS = ["#e8eef7", "#eef3ea", "#f3eee6", "#ebe9f4"];
 // Cars are just cars: a mix of everyday colours. The small light on each one is the connector state.
 // No red, green, yellow or blue: those colours mean status on this map.
@@ -30,13 +26,10 @@ const LINE_Z = 2.2;
 
 let refs = null;
 
-export function buildScene(svg, sites, stations, onSelect, layout = "grid") {
-  const L = LAYOUTS[layout] ?? LAYOUTS.grid;
-  ROUTE_Y_FIRST = L.routeYFirst;
+export function buildScene(svg, sites, stations, onSelect) {
   svg.replaceChildren();
   refs = { sites: {}, stations: {}, onSelect };
-  const G = L.ground;
-  svg.append(el("polygon", { class: "ground", points: pts([[-G, -G, 0], [G, -G, 0], [G, G, 0], [-G, G, 0]]) }));
+  svg.append(el("polygon", { class: "ground", points: pts([[-32, -32, 0], [32, -32, 0], [32, 32, 0], [-32, 32, 0]]) }));
   const gridLayer = el("g", { class: "grid-layer" });
   const siteLayer = el("g", { class: "site-layer" });
   const labelLayer = el("g", { class: "label-layer" });
@@ -49,7 +42,7 @@ export function buildScene(svg, sites, stations, onSelect, layout = "grid") {
   buildSubstation(gridLayer);
 
   sites.forEach((site, i) => {
-    const [cx, cy] = L.centers[i % L.centers.length];
+    const [cx, cy] = CENTERS[i % CENTERS.length];
     const siteStations = stations.filter((s) => s.site === site.code).sort((a, b) => a.id.localeCompare(b.id));
     refs.sites[site.code] = buildSite(siteLayer, labelLayer, gridLayer, site, siteStations, cx - SIZE / 2, cy - SIZE / 2, i);
   });

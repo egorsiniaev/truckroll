@@ -46,17 +46,18 @@ document.querySelectorAll(".tabs button").forEach((b) => { b.onclick = () => { s
 
 // Pan and zoom: drag the map, wheel or buttons to zoom. A drag never counts as a click.
 // Wide screens leave room at the top for the incidents strip; narrow ones show incidents below the map.
-// Phones stack the sites vertically and fit the map to them; the page scrolls through it.
+// Phones fit the map to its content: small, centred, full width.
 const NARROW = matchMedia("(max-width: 1100px)");
 const PHONE = matchMedia("(max-width: 700px)");
-const layout = () => (PHONE.matches ? "column" : "grid");
 function homeView() {
   if (PHONE.matches) {
     const b = contentBox(svg);
     if (b) {
-      const pad = 12;
-      svg.style.aspectRatio = `${b.w + 2 * pad} / ${b.h + 2 * pad}`;
-      return { x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad, h: b.h + 2 * pad };
+      // Weather text arrives after the build, so leave room for it on the right.
+      const pad = 12, right = 70;
+      const v = { x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad + right, h: b.h + 2 * pad };
+      svg.style.aspectRatio = `${v.w} / ${v.h}`;
+      return v;
     }
   }
   svg.style.aspectRatio = "";
@@ -81,7 +82,7 @@ window.addEventListener("pointermove", (e) => {
   applyView();
 });
 NARROW.addEventListener("change", () => { vb = homeView(); applyView(); });
-PHONE.addEventListener("change", () => { builtFor = null; placeLegend(); render(); });
+PHONE.addEventListener("change", () => { placeLegend(); vb = homeView(); applyView(); });
 // A vertical swipe on a phone scrolls the page: the browser cancels the pointer, so drop the drag.
 window.addEventListener("pointercancel", () => { drag = null; svg.classList.remove("dragging"); });
 window.addEventListener("pointerup", () => {
@@ -326,10 +327,9 @@ function renderPanel() {
 function render() {
   if (!snapshot) return;
   const key = snapshot.stations.map((s) => s.id).join(",");
-  const buildKey = `${layout()}|${key}`;
-  if (key && buildKey !== builtFor) {
-    buildScene(svg, meta.sites, snapshot.stations, ctx.select, layout());
-    builtFor = buildKey;
+  if (key && key !== builtFor) {
+    buildScene(svg, meta.sites, snapshot.stations, ctx.select);
+    builtFor = key;
     vb = homeView();
     applyView();
   }
