@@ -119,6 +119,31 @@ class Hub:
         except OSError as exc:
             log.warning("incident history write failed: %s", exc)
 
+    def _correct_restart_closures(self) -> None:
+        """One-off: meter-jump incidents closed by a misread timer after the 13:29:31Z restart get true records."""
+        bad_at = "2026-11-25T13:29:31Z"
+        fixed: dict[str, dict] = {}
+        for inc in self.incidents.closed:
+            if inc.kind != "meter_jump" or inc.recovered != bad_at:
+                continue
+            inc.ttr_s = round((_parse_iso(bad_at) - _parse_iso(inc.opened)).total_seconds())
+            last = inc.timeline[-1]
+            if last["type"] == "recovered" and last["short"] != "closed by bug":
+                last.update(text=f"Closed by a restart bug: a saved timer was misread, so the 30-minute quiet check "
+                                 f"passed without being checked. Open for {inc.ttr_s // 60} min; recovery not "
+                                 f"verified.", short="closed by bug")
+            held = next((t["time"] for t in inc.timeline if t["short"] == "billing hold"), inc.opened)
+            inc.memo.update(hold_since=held, hold_released=_iso_now())
+            inc.timeline.insert(len(inc.timeline) - 1, {
+                "time": inc.memo["hold_released"], "type": "response", "actor": "operator", "short": "billing released",
+                "text": "Billing released at review: held sessions re-billed from their power readings."})
+            fixed[inc.id] = inc.to_json(self.incidents.clock())
+        if not fixed or self.history_path is None or not self.history_path.exists():
+            return
+        rows = [json.loads(line) for line in self.history_path.read_text().splitlines() if line.strip()]
+        self.history_path.write_text("".join(json.dumps(fixed.get(r.get("id"), r)) + "\n" for r in rows))
+        log.info("corrected %d incidents closed by the restart bug", len(fixed))
+
     def history(self) -> list[dict]:
         """Every closed incident on record, plus the ones still open."""
         rows = []
@@ -369,6 +394,9 @@ class Hub:
                     self.incidents._close(key, "Closed as a false alarm: the drift check used the previous session's "
                                                "last reading as this session's start (detector bug, fixed). The meter "
                                                "was fine.", "system", short="false alarm")
+            if "restart-close-2026-11-25b" not in self._fixes_applied:
+                self._fixes_applied.add("restart-close-2026-11-25b")
+                self._correct_restart_closures()
             if not self._reconciled:
                 self._reconciled = True
                 cleared = await self.limits.reconcile(snap["stations"])
@@ -440,3 +468,11 @@ class Hub:
         finally:
             for t in side:
                 t.cancel()
+
+
+def _iso_now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _parse_iso(iso: str) -> datetime:
+    return datetime.fromisoformat(iso.replace("Z", "+00:00"))

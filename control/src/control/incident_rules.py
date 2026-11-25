@@ -162,7 +162,7 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
             m._close(key, "Energy and power readings agree again.", short="meter ok")
     for key in [k for k in m.open if k.startswith("jump:")]:
         inc = m.open[key]
-        if now - inc.memo.get("last_jump", now) >= JUMP_QUIET_S:
+        if now - inc.memo.setdefault("last_jump", now) >= JUMP_QUIET_S:
             inc.release_billing("Billing released: held sessions re-billed from their power readings, not the "
                                 "faulty register.")
             m._close(key, f"No impossible readings for {JUMP_QUIET_S // 60} min.", short="readings ok")

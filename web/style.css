@@ -456,3 +456,6 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 .kpi span { font-size: clamp(9.5px, 0.84cqi, 11px); }
 .metrics { padding: clamp(5px, 0.6cqi, 9px) clamp(8px, 1cqi, 14px); font-size: clamp(10.5px, 0.9cqi, 12px); }
 .kpis { gap: clamp(4px, 0.6cqi, 10px); }
+
+.title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.title .live { margin-left: 0; white-space: nowrap; }
