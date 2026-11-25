@@ -124,7 +124,8 @@ class IncidentManager:
     def to_state(self, clocks: Clocks) -> dict:
         def inc(i: Incident) -> dict:
             memo = {k: (clocks.to_wall(v) if k in TIME_MEMOS else v) for k, v in i.memo.items()}
-            return {**i.__dict__, "opened_at": clocks.to_wall(i.opened_at), "memo": memo}
+            return {**i.__dict__, "opened_at": clocks.to_wall(i.opened_at), "symptom_at": clocks.to_wall(i.symptom_at),
+                    "memo": memo}
 
         return {
             "seq": next(self._seq),
@@ -138,7 +139,8 @@ class IncidentManager:
     def from_state(self, data: dict, clocks: Clocks) -> None:
         def inc(d: dict) -> Incident:
             memo = {k: (clocks.to_mono(v) if k in TIME_MEMOS else v) for k, v in d.get("memo", {}).items()}
-            return Incident(**{**d, "opened_at": clocks.to_mono(d["opened_at"]), "memo": memo})
+            return Incident(**{**d, "opened_at": clocks.to_mono(d["opened_at"]),
+                                "symptom_at": clocks.to_mono(d.get("symptom_at")), "memo": memo})
 
         self.open = {k: inc(d) for k, d in data.get("open", {}).items()}
         self.closed = deque((inc(d) for d in data.get("closed", [])), maxlen=KEEP_CLOSED)
