@@ -429,3 +429,9 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 .inc-row .steps li.metrics-line b { color: #0f766e; }
 .inc-row .steps li.metrics-line span { color: #0f766e; white-space: normal; }
 .inc-row .steps li { white-space: normal; }
+
+.handover { position: fixed; inset: 0; background: #0f172a55; display: flex; align-items: flex-start; justify-content: center; padding-top: 90px; z-index: 20; }
+.handover[hidden] { display: none; }
+.handover-card { background: #fff; border-radius: 14px; box-shadow: var(--shadow); width: min(640px, 92vw); padding: 18px 20px; max-height: 80vh; overflow: auto; font-size: 13px; }
+.handover-card ul.ai { margin: 8px 0 4px; padding-left: 18px; }
+.handover-card ul.ai li { margin: 4px 0; text-wrap: pretty; }

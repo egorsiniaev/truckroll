@@ -112,6 +112,7 @@ class IncidentManager:
         self.over_limit_since: dict[str, float] = {}  # station -> when it went above its limit
         self.meter_diag: dict[str, str] = {}  # station -> evidence for a drift incident
         self.field = None  # FieldService, set by the hub
+        self.on_closed = None  # callable(incident json), e.g. to append to a history file
         self.open: dict[str, Incident] = {}  # key -> incident
         self.closed: deque[Incident] = deque(maxlen=KEEP_CLOSED)
         self._seq = itertools.count(1)
@@ -183,6 +184,8 @@ class IncidentManager:
         inc.ttr_s = round(self.clock() - inc.opened_at)
         inc.add("recovered", f"{text} Time to recover: {_dur(inc.ttr_s)}.", actor, short)
         self.closed.appendleft(inc)
+        if self.on_closed is not None:
+            self.on_closed(inc.to_json(self.clock()))
 
     # ---- decisions: ask, then act on the answer ----------------------------------------
     async def _ask(self, inc: Incident, action: str, params: dict, question: str, why: str,

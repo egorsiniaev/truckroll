@@ -283,11 +283,45 @@ function render() {
   renderPanel();
 }
 
+// "While you were away": a handover when the operator comes back after more than 5 minutes.
+const AWAY_MS = 5 * 60 * 1000;
+function markVisit() { localStorage.setItem("lastVisit", new Date().toISOString()); }
+setInterval(() => { if (document.visibilityState === "visible") markVisit(); }, 60_000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") markVisit(); });
+
+async function showHandover() {
+  const last = localStorage.getItem("lastVisit");
+  markVisit();
+  if (!last || Date.now() - new Date(last).getTime() < AWAY_MS || new URLSearchParams(location.search).has("static")) return;
+  const res = await fetch(`/api/summary?since=${encodeURIComponent(last)}`).catch(() => null);
+  if (!res?.ok) return;
+  const { facts: f, ai } = await res.json();
+  const box = document.getElementById("handover");
+  const since = new Date(f.since).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const list = (o) => Object.entries(o).map(([k, v]) => `${esc(k)} ${v}`).join(", ") || "none";
+  box.innerHTML = `<div class="handover-card"><button class="mini" id="handover-close" style="float:right">Got it</button>
+    <h3>While you were away <span class="muted">since ${esc(since)}</span></h3>
+    ${ai?.length ? `<ul class="ai">${ai.map((b) => `<li>${esc(b)}</li>`).join("")}</ul><p class="meta">Summary by the AI agent; facts below.</p>` : ""}
+    <div class="grid2">
+      <div class="stat"><b>${f.incidents_opened}</b><span>incidents opened (${esc(list(f.opened_by_kind))})</span></div>
+      <div class="stat"><b>${f.incidents_resolved}</b><span>resolved</span></div>
+      <div class="stat"><b>${f.decisions_by_default}</b><span>decisions went to the default; ${f.decisions_by_you} answered by you</span></div>
+      <div class="stat"><b>${f.margin_today_eur == null ? "–" : `€${f.margin_today_eur.toFixed(0)}`}</b><span>margin today</span></div>
+    </div>
+    ${f.waiting_for_you.length ? `<h4>Waiting for you</h4><ul class="rules">${f.waiting_for_you.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>` : ""}
+    ${f.still_open.length ? `<h4>Still open</h4><ul class="rules">${f.still_open.map((i) => `<li>${esc(i.title)} <span class="muted">${esc(i.eta ?? i.status)}</span></li>`).join("")}</ul>` : ""}
+    ${f.slos_missed.length ? `<p class="meta bad">Service levels missed today: ${f.slos_missed.map(esc).join(", ")}</p>` : ""}
+    <p class="meta">Scenarios run: ${esc(list(f.scenarios_run))}. Technicians out now: ${f.technicians_out}.</p></div>`;
+  box.hidden = false;
+  document.getElementById("handover-close").onclick = () => { box.hidden = true; };
+}
+
 async function start() {
   meta = await (await fetch("/api/meta")).json();
   snapshot = await (await fetch("/api/state")).json();
   switchTab(activeTab);
   render();
+  showHandover();
   // ?static renders one snapshot without the live stream (used for screenshots).
   if (new URLSearchParams(location.search).has("static")) return;
   const es = new EventSource("/api/stream");

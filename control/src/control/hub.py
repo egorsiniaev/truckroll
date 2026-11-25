@@ -92,6 +92,8 @@ class Hub:
         self.incidents = IncidentManager(self.sites, self.clients, book=self.book, limits=self.limits)
         self.field = FieldService(self.clients, on_cost=lambda site, eur: self.economics.service(site, eur))
         self.incidents.field = self.field
+        self.history_path = self.ledger_path.with_name("incidents.jsonl") if self.ledger_path else None
+        self.incidents.on_closed = self._append_history
         self.slo = SloTracker([s["code"] for s in self.sites])
         self.autopilot = Autopilot(self.runner, enabled=self.autopilot_default)
         self.economics = Economics(self.sites, dynamic=self.dynamic_pricing_default)
@@ -101,6 +103,27 @@ class Hub:
         self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
                                    on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices))
         self._load_state()  # last: needs every component above
+
+    def _append_history(self, incident: dict) -> None:
+        if self.history_path is None:
+            return
+        try:
+            with self.history_path.open("a") as f:
+                f.write(json.dumps(incident) + "\n")
+        except OSError as exc:
+            log.warning("incident history write failed: %s", exc)
+
+    def history(self) -> list[dict]:
+        """Every closed incident on record, plus the ones still open."""
+        rows = []
+        if self.history_path and self.history_path.exists():
+            for line in self.history_path.read_text().splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        live = [i for i in self.incidents.snapshot() if i["status"] != "recovered"]
+        return live + rows[::-1]
 
     # ---- survive restarts: uptime, today's money, battery charge -------------------
     def _save_state(self) -> None:

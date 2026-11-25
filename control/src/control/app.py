@@ -114,6 +114,23 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
         await hub.poll_once()  # act on it now, not on the next tick
         return {"ok": True, "result": d.to_json(hub.book.clock())}
 
+    @app.get("/api/summary")
+    async def summary(since: str):
+        from datetime import UTC, datetime
+
+        from control.agent import summarize
+        from control.summary import handover
+        try:
+            start = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(422, "since must be an ISO timestamp") from None
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        # Decisions are only kept briefly in memory; the incident timelines carry the rest.
+        facts = handover(start, {**hub.snapshot, "incidents": hub.history()}, list(hub.book.history), hub.ledger_path)
+        bullets = await summarize(hub.agent, facts) if hub.agent is not None and hub.agent.enabled else None
+        return {"facts": facts, "ai": bullets}
+
     @app.post("/api/agent")
     async def agent_toggle(body: ToggleRequest):
         if hub.agent is None:

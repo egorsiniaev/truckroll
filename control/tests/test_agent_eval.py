@@ -119,3 +119,24 @@ def test_runs_before_the_agent_existed_are_not_scored(tmp_path):
                                   "tokens_out": 1, "triaged": "2026-11-24T09:00:20Z"}))
     res = evaluate(ledger, triage)
     assert res["runs"] == 0 and res["runs_before_agent"] == 1
+
+
+def test_handover_counts_what_happened_since(tmp_path):
+    from datetime import UTC, datetime
+
+    from control.summary import handover
+    snap = {"incidents": [
+        {"kind": "fault", "title": "A", "status": "recovered", "opened": "2026-11-25T08:00:00Z", "recovered": "2026-11-25T08:10:00Z"},
+        {"kind": "auth_slow", "title": "B", "status": "open", "opened": "2026-11-25T09:00:00Z", "recovered": None, "eta": {"basis": "x"}},
+        {"kind": "fault", "title": "C", "status": "recovered", "opened": "2026-11-25T05:00:00Z", "recovered": "2026-11-25T05:30:00Z"}],
+        "slo": [{"name": "Uptime", "status": "missed"}], "economics": {"fleet": {"margin_eur": 12.5}}}
+    facts = handover(datetime(2026, 11, 25, 7, tzinfo=UTC), snap, [], None)
+    assert facts["incidents_opened"] == 2 and facts["incidents_resolved"] == 1
+    assert facts["still_open"][0]["title"] == "B" and facts["slos_missed"] == ["Uptime"]
+
+
+async def test_busy_gemini_retries_the_same_incident_later(tmp_path):
+    agent = TriageAgent(gemini(ANSWER, status=503), "k", "m", None)
+    m = Manager()
+    await agent.tick(m, SNAP)
+    assert "busy" in agent.status()["last_error"] and "INC-0001" not in agent.done

@@ -23,6 +23,7 @@ URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateC
 TZ = ZoneInfo("Europe/Amsterdam")
 WAIT_BEFORE_TRIAGE_S = 15
 RATE_LIMIT_PAUSE_S = 900
+TRANSIENT_PAUSE_S = 60  # Gemini 500/503 ("high demand"): try the same incident again a minute later
 MAX_OUTPUT_TOKENS = 400
 CATEGORIES = ["network", "hardware", "firmware", "backend", "expected"]
 NEXT_STEPS = {  # agent vocabulary -> incident action
@@ -145,6 +146,8 @@ class TriageAgent:
         self.done.add(inc["id"])
         verdict = await self._ask_model(build_context(inc, snap))
         if verdict is None:
+            if self.last_error and self.last_error.startswith("Gemini busy"):
+                self.done.discard(inc["id"])  # temporary: try this incident again
             return
         await manager.agent_verdict(inc["id"], verdict, NEXT_STEPS.get(verdict["next_step"]))
         self._record(inc, verdict)
@@ -172,6 +175,10 @@ class TriageAgent:
             self.paused_until = self.clock() + RATE_LIMIT_PAUSE_S
             self.last_error = "rate limited by Gemini: paused 15 min"
             log.warning(self.last_error)
+            return None
+        if res.status_code in (500, 503):
+            self.paused_until = self.clock() + TRANSIENT_PAUSE_S
+            self.last_error = f"Gemini busy (HTTP {res.status_code}): retrying in 1 min"
             return None
         if res.status_code >= 400:
             self.last_error = f"Gemini HTTP {res.status_code}"
@@ -211,3 +218,53 @@ class TriageAgent:
                 f.write(json.dumps(row) + "\n")
         except OSError as exc:
             log.warning("triage log write failed: %s", exc)
+
+
+SUMMARY_SYSTEM = (
+    "You write a shift handover for the operator of an EV charging network who was away. Use only the facts "
+    "given. Three short bullets: what mattered most, what is still open and needs them, anything unusual. No "
+    "greeting, no filler."
+)
+SUMMARY_SCHEMA = {"type": "OBJECT", "properties": {"bullets": {"type": "ARRAY", "items": {"type": "STRING"}}},
+                  "required": ["bullets"]}
+SUMMARY_CACHE_S = 600
+
+
+async def summarize(agent: "TriageAgent", facts: dict) -> list[str] | None:
+    """One cheap call, cached for 10 minutes, counted against the agent's caps."""
+    now = agent.clock()
+    cached = getattr(agent, "_summary_cache", None)
+    if cached and now - cached[0] < SUMMARY_CACHE_S:
+        return cached[1]
+    if not agent._budget_ok():
+        return None
+    body = {
+        "systemInstruction": {"parts": [{"text": SUMMARY_SYSTEM}]},
+        "contents": [{"role": "user", "parts": [{"text": json.dumps(facts, separators=(",", ":"))}]}],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 250, "responseMimeType": "application/json",
+                             "responseSchema": SUMMARY_SCHEMA,
+                             "thinkingConfig": ({"thinkingLevel": "minimal"} if agent.model.startswith("gemini-3")
+                                                else {"thinkingBudget": 0})},
+    }
+    agent.calls_recent.append(now)
+    agent.calls_today += 1
+    try:
+        res = await agent.http.post(URL.format(model=agent.model), json=body, timeout=30,
+                                    headers={"x-goog-api-key": agent._key})
+    except httpx.HTTPError:
+        return None
+    if res.status_code == 429:
+        agent.paused_until = now + RATE_LIMIT_PAUSE_S
+        return None
+    if res.status_code >= 400:
+        return None
+    data = res.json()
+    usage = data.get("usageMetadata", {})
+    agent.tokens_in += usage.get("promptTokenCount", 0)
+    agent.tokens_out += usage.get("candidatesTokenCount", 0)
+    try:
+        bullets = json.loads(data["candidates"][0]["content"]["parts"][0]["text"])["bullets"][:3]
+    except (KeyError, IndexError, json.JSONDecodeError):
+        return None
+    agent._summary_cache = (now, bullets)
+    return bullets
