@@ -93,6 +93,8 @@ class Hub:
         self.field = FieldService(self.clients, on_cost=lambda site, eur: self.economics.service(site, eur))
         self.incidents.field = self.field
         self.history_path = self.ledger_path.with_name("incidents.jsonl") if self.ledger_path else None
+        from control.reports import Reports
+        self.reports = Reports(self.ledger_path.with_name("reports") if self.ledger_path else None)
         self.incidents.on_closed = self._append_history
         self.slo = SloTracker([s["code"] for s in self.sites])
         self.autopilot = Autopilot(self.runner, enabled=self.autopilot_default)
@@ -103,6 +105,10 @@ class Hub:
         self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
                                    on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices))
         self._load_state()  # last: needs every component above
+        if self.history_path is not None and not self.history_path.exists():
+            # First run with a history file: seed it with the recently closed incidents still in memory.
+            for inc in reversed(self.incidents.closed):
+                self._append_history(inc.to_json(self.incidents.clock()))
 
     def _append_history(self, incident: dict) -> None:
         if self.history_path is None:

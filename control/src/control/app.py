@@ -114,6 +114,47 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
         await hub.poll_once()  # act on it now, not on the next tick
         return {"ok": True, "result": d.to_json(hub.book.clock())}
 
+    def _incident(incident_id: str) -> dict:
+        inc = next((i for i in hub.history() if i["id"] == incident_id), None)
+        if inc is None:
+            raise HTTPException(404, f"unknown incident {incident_id}")
+        return inc
+
+    @app.get("/api/reports")
+    async def reports_list():
+        from control.reports import applicability
+        rows = []
+        for inc in hub.history()[:200]:
+            rep = hub.reports.get(inc["id"])
+            rows.append({"id": inc["id"], "title": inc["title"], "kind": inc["kind"], "site": inc["site"],
+                         "opened": inc["opened"], "status": inc["status"], "ttr_s": inc.get("ttr_s"),
+                         "applicability": applicability(inc), "has_report": rep is not None,
+                         "approved": (rep or {}).get("approved", {})})
+        return {"incidents": rows}
+
+    @app.get("/api/reports/{incident_id}")
+    async def report_get(incident_id: str):
+        from control.reports import applicability
+        inc = _incident(incident_id)
+        return {"incident": inc, "applicability": applicability(inc), "report": hub.reports.get(incident_id)}
+
+    @app.post("/api/reports/{incident_id}/draft")
+    async def report_draft(incident_id: str):
+        if hub.agent is None:
+            raise HTTPException(409, "no Gemini key configured")
+        try:
+            return await hub.reports.draft(hub.agent, _incident(incident_id))
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from None
+
+    @app.post("/api/reports/{incident_id}/approve/{part}")
+    async def report_approve(incident_id: str, part: Literal["postmortem", "nis2_early_warning", "nis2_notification",
+                                                            "cra_early_warning"]):
+        try:
+            return hub.reports.approve(incident_id, part)
+        except KeyError:
+            raise HTTPException(404, "draft the report first") from None
+
     @app.get("/api/summary")
     async def summary(since: str):
         from datetime import UTC, datetime
