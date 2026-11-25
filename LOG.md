@@ -34,3 +34,10 @@ are back online.
 The Caddyfile was bind-mounted as a single file; rsync replaces files, so the container kept the old one and a
 reload changed nothing. Moving the mount to the folder at /etc/caddy failed (the secrets mount can't sit inside a
 read-only folder) and the site was down for about 2 minutes. Now the folder is mounted at /etc/caddy/conf.
+
+## 2026-11-25: delivered energy stuck at 0, cars never left
+The demand engine took each session's start as the register reading seen when the transaction appeared. That was
+still the previous session's last value, and these chargers count per session, so "delivered" stayed at 0 for 19 of
+46 sessions and those cars never reached their target (long queues, 3.5 h app waits). Same stale-baseline mistake as
+the meter drift check. Fixed: use the CSMS's per-session energy (meter at StartTransaction); the register fallback
+rebases when the register restarts.

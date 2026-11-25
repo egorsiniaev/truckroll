@@ -69,6 +69,23 @@ class Session:
     start_wh: float | None = None
     tx: int | None = None
     stop_failures: int = 0
+    delivered_wh: float = 0.0  # last known, kept for when the session ends and the connector moves on
+
+
+def delivered(sess: "Session", conn: Mapping | None) -> float:
+    """Energy this session has delivered. The CSMS's per-session figure first: it knows the meter reading at
+    StartTransaction. The register fallback rebases when the register restarts (these chargers count per session),
+    because the reading seen when a session appears may still be the previous session's."""
+    if conn is None or conn.get("transaction_id") != sess.tx or sess.tx is None:
+        return sess.delivered_wh
+    if conn.get("session_wh") is not None:
+        sess.delivered_wh = float(conn["session_wh"])
+        return sess.delivered_wh
+    energy = conn.get("energy_wh") or 0.0
+    if sess.start_wh is None or energy < sess.start_wh:
+        sess.start_wh = 0.0 if sess.start_wh is not None else energy
+    sess.delivered_wh = max(0.0, energy - sess.start_wh)
+    return sess.delivered_wh
 
 
 @dataclass
@@ -127,7 +144,8 @@ class DemandEngine:
         return {"next_id": next(self._ids), "sites": {code: {
             "queue": [car(c) for c in st.queue],
             "sessions": [{"car": car(se.car), "station": se.station, "connector": se.connector,
-                          "requested": clocks.to_wall(se.requested), "start_wh": se.start_wh, "tx": se.tx}
+                          "requested": clocks.to_wall(se.requested), "start_wh": se.start_wh, "tx": se.tx,
+                          "delivered_wh": se.delivered_wh}
                          for se in st.sessions.values()],
             "counters": {k: getattr(st, k) for k in ("completed", "interrupted", "abandoned", "diverted",
                                                       "wait_s_total", "served", "starts_ok", "starts_failed")},
@@ -143,7 +161,8 @@ class DemandEngine:
             st = SiteDemand(queue=deque(car(c) for c in saved.get("queue", [])))
             for se in saved.get("sessions", []):
                 st.sessions[(se["station"], se["connector"])] = Session(
-                    car(se["car"]), se["station"], se["connector"], clocks.to_mono(se["requested"]), se["start_wh"], se["tx"])
+                    car(se["car"]), se["station"], se["connector"], clocks.to_mono(se["requested"]), se["start_wh"], se["tx"],
+                    delivered_wh=se.get("delivered_wh", 0.0))
             for k, v in saved.get("counters", {}).items():
                 setattr(st, k, v)
             self.state[code] = st
@@ -158,11 +177,11 @@ class DemandEngine:
                 conn = next((c for c in stations.get(sid, {}).get("connectors", []) if c["id"] == cid), None)
                 if conn is None:
                     continue
-                delivered = max(0.0, (conn.get("energy_wh") or 0.0) - sess.start_wh) if sess.start_wh is not None else 0.0
-                remaining = max(0.0, sess.car.need_wh - delivered)
+                done_wh = delivered(sess, conn)
+                remaining = max(0.0, sess.car.need_wh - done_wh)
                 power = conn.get("power_w") or 0.0
                 eta = remaining / power * 3600 if power >= MIN_POWER_FOR_ETA_W and sess.tx else None
-                out[f"{sid}#{cid}"] = {"need_kwh": round(sess.car.need_wh / 1000, 1), "delivered_kwh": round(delivered / 1000, 1),
+                out[f"{sid}#{cid}"] = {"need_kwh": round(sess.car.need_wh / 1000, 1), "delivered_kwh": round(done_wh / 1000, 1),
                                        "eta_s": round(eta) if eta is not None else None, "starting": sess.tx is None,
                                        "adopted": sess.car.id_tag == "adopted"}
         return out
@@ -242,15 +261,14 @@ class DemandEngine:
             if not station or not conn or conn.get("transaction_id") != sess.tx or not station.get("connected"):
                 # Ended by something else: fault, reset, outage, scenario.
                 del st.sessions[key]
-                delivered = (conn.get("energy_wh", 0) - sess.start_wh) if conn else 0.0
-                if delivered >= sess.car.need_wh * DONE_SHARE:
+                got = sess.delivered_wh  # the connector may already show the next session
+                if got >= sess.car.need_wh * DONE_SHARE:
                     st.completed += 1
                 else:
                     st.interrupted += 1
-                    self.on_lost(code, max(0.0, sess.car.need_wh - delivered) / 1000)
+                    self.on_lost(code, max(0.0, sess.car.need_wh - got) / 1000)
                 continue
-            delivered = (conn.get("energy_wh") or 0.0) - (sess.start_wh or 0.0)
-            if delivered >= sess.car.need_wh:
+            if delivered(sess, conn) >= sess.car.need_wh:
                 try:
                     await self.clients.simulator.stop_transaction(sess.station, sess.tx)
                 except UpstreamError as exc:

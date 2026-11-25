@@ -169,7 +169,7 @@ export function renderStation(root, st, site, meta, snapshot, ctx) {
     ${sources.length ? `<p class="meta">Limited by: ${sources.map(([k, v]) => `${esc(k)} ${kw(v)}`).join(", ")} (lowest wins)</p>` : ""}
     <h4>Connectors</h4>
     <table><tr><th>#</th><th>Status</th><th title="Charging power right now, from the charger's meter">Power</th>
-      <th title="Energy delivered in this session / what the car needs">Session</th><th title="When the car should be done at the current power">Done</th></tr>
+      <th title="Energy this session has delivered so far / what the car needs">Delivered / needed</th><th title="Expected finish time at the current power">ETA</th></tr>
       ${st.connectors.map((c) => connectorRow(c)).join("")}
     </table>
     <p class="meta">${STATUS_HELP}</p>

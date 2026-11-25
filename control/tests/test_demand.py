@@ -121,8 +121,33 @@ async def test_interrupted_session_and_start_timeout():
     t[0] += 1
     await eng.tick(snap([("S-1", 1, "Charging", 9, 0)]), {"S": 0.0}, {"S": 1.0})
     t[0] += 1
+    await eng.tick(snap([("S-1", 1, "Charging", 9, 2000)]), {"S": 0.0}, {"S": 1.0})
+    t[0] += 1
     await eng.tick(snap([("S-1", 1, "Faulted", None, 2000)]), {"S": 0.0}, {"S": 1.0})
     assert eng.status()["S"]["interrupted"] == 1 and lost and lost[-1][1] == 8.0
+
+
+async def test_stale_register_from_the_previous_session_does_not_hide_delivered_energy():
+    eng, t, _ = engine()
+    Car = __import__("control.demand", fromlist=["Car"]).Car
+    eng.state["S"].queue.append(Car(1, "S", 5000, 0, 9999, "TAG"))
+    await eng.tick(snap([("S-1", 1, "Available", None, 30_000)]), {"S": 0.0}, {"S": 1.0})
+    t[0] += 1
+    # The new transaction appears while the backend still shows the last session's 30 kWh register.
+    await eng.tick(snap([("S-1", 1, "Charging", 7, 30_000)]), {"S": 0.0}, {"S": 1.0})
+    for wh in (1500, 3000, 5200):  # the register restarted at 0 for this session
+        t[0] += 5
+        await eng.tick(snap([("S-1", 1, "Charging", 7, wh)]), {"S": 0.0}, {"S": 1.0})
+    assert ("stop", "S-1", 7) in eng.clients.simulator.calls  # 5 kWh reached: the car leaves
+
+
+async def test_backend_session_energy_wins_over_the_register():
+    Session = __import__("control.demand", fromlist=["Session"]).Session
+    Car = __import__("control.demand", fromlist=["Car"]).Car
+    delivered = __import__("control.demand", fromlist=["delivered"]).delivered
+    sess = Session(Car(1, "S", 9e9, 0, 9e9, "T"), "S-1", 1, 0.0, start_wh=30_000.0, tx=7)
+    assert delivered(sess, {"transaction_id": 7, "energy_wh": 4000, "session_wh": 4000}) == 4000
+    assert delivered(sess, {"transaction_id": 8, "energy_wh": 0}) == 4000  # moved on: keep the last known
 
 
 async def test_failed_start_keeps_car_in_queue():
@@ -146,7 +171,7 @@ async def test_untracked_running_sessions_are_adopted_and_finish():
 async def test_session_info_gives_expected_finish_and_preparing_sessions_are_adopted():
     eng, t, _ = engine()
     await eng.tick(snap([("S-1", 1, "Preparing", 32, 0)]), {"S": 0.0}, {"S": 1.0})
-    stations = {"S-1": {"id": "S-1", "connectors": [{"id": 1, "energy_wh": 2000, "power_w": 10_000}]}}
+    stations = {"S-1": {"id": "S-1", "connectors": [{"id": 1, "transaction_id": 32, "energy_wh": 2000, "power_w": 10_000}]}}
     info = eng.session_info(stations)["S-1#1"]
     assert info["adopted"] and info["delivered_kwh"] == 2.0
     assert abs(info["eta_s"] - (info["need_kwh"] * 1000 - 2000) / 10_000 * 3600) < 20  # need_kwh is rounded
