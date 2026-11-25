@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 POLL_S = 2.0
 CONTROLLER_EVERY_S = 10
 DEMAND_EVERY_S = 5
+AGENT_EVERY_S = 5
 WORLD_EVERY_S = 60
 WEATHER_EVERY_S = 600
 PRICES_EVERY_S = 3600
@@ -334,18 +335,10 @@ class Hub:
                 for ev in await self.controller.tick(snap):
                     self.incidents.grid_cap(ev)
             self._flex_requests()
-            if self._due_now("demand", DEMAND_EVERY_S):
-                tariffs = self.economics.tariffs(self.prices)
-                factors = {s["code"]: demand_factor(s, tariffs[s["code"]]) for s in self.sites}
-                for text in await self.demand.tick(snap, self.world.shares(), factors):
-                    self.add_event("info", text, kind="demand")
             if self._due_now("world", WORLD_EVERY_S):
                 await self.tick_world(snap)
             if self._due_now("save", SAVE_EVERY_S):
                 self._save_state()
-            if self.agent is not None:
-                await self.agent.tick(self.incidents, {**snap, "events": list(self.events),
-                                                        "prices": self.prices})
             started = self.autopilot.tick(snap["stations"])
             if started:
                 self.add_event("info", f"autopilot picked a random scenario: {started}", kind="scenario")
@@ -367,10 +360,34 @@ class Hub:
         except UpstreamError as exc:
             self.add_event("error", f"real-world mode: {exc}")
 
-    async def run(self) -> None:
+    async def demand_once(self) -> None:
+        snap = self.snapshot
+        if not snap.get("stations"):
+            return
+        tariffs = self.economics.tariffs(self.prices)
+        factors = {s["code"]: demand_factor(s, tariffs[s["code"]]) for s in self.sites}
+        for text in await self.demand.tick(snap, self.world.shares(), factors):
+            self.add_event("info", text, kind="demand")
+
+    async def agent_once(self) -> None:
+        if self.agent is not None and self.snapshot.get("stations"):
+            await self.agent.tick(self.incidents, {**self.snapshot, "events": list(self.events), "prices": self.prices})
+
+    async def _loop(self, name: str, step, every_s: float) -> None:
         while True:
             try:
-                await self.poll_once()
-            except Exception:  # noqa: BLE001 - the poller must survive anything
-                log.exception("poll failed")
-            await asyncio.sleep(POLL_S)
+                await step()
+            except Exception:  # noqa: BLE001 - a background loop must survive anything
+                log.exception("%s loop failed", name)
+            await asyncio.sleep(every_s)
+
+    async def run(self) -> None:
+        # Slow upstreams (simulator commands, Gemini) run in their own loops, so they can never freeze the
+        # 2 s poll that keeps the map, detection and decisions current.
+        side = [asyncio.create_task(self._loop("demand", self.demand_once, DEMAND_EVERY_S)),
+                asyncio.create_task(self._loop("agent", self.agent_once, AGENT_EVERY_S))]
+        try:
+            await self._loop("poll", self.poll_once, POLL_S)
+        finally:
+            for t in side:
+                t.cancel()

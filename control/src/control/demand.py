@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 
 START_TIMEOUT_S = 40
 RECENT_S = 180
+MAX_STARTS_PER_TICK = 4  # each start is a simulator round trip; keep one tick short
 # A transaction can sit in any of these; a charger reporting the wrong one must not strand the session.
 ADOPTABLE = {"Charging", "SuspendedEV", "SuspendedEVSE", "Preparing", "Finishing"}
 MIN_POWER_FOR_ETA_W = 200
@@ -279,7 +280,9 @@ class DemandEngine:
             for c in s.get("connectors", [])
             if c["status"] == "Available" and not c.get("transaction_id") and (s["id"], c["id"]) not in busy
         ]
-        while st.queue and free:
+        started = 0
+        while st.queue and free and started < MAX_STARTS_PER_TICK:
+            started += 1
             car = st.queue.popleft()
             station, connector = free.pop(0)
             try:

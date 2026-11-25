@@ -137,9 +137,9 @@ async def _auth_cleanup(c: Ctx) -> None:
 def _meter_drift(c: Ctx) -> list[Step]:
     async def drift(cx: Ctx) -> None:
         st = cx.picked.setdefault("meter", [cx.rng.choice(_charging_at(cx, "A2-HUB"))])[0]
-        await cx.clients.csms.chaos(meter_factor={st["id"]: 3.0})
+        await cx.clients.csms.chaos(meter_factor={st["id"]: 1.8})
 
-    return [Step(0, "one charger's energy meter starts reading 3x the real energy", drift),
+    return [Step(0, "one charger's energy meter starts reading 1.8x the real energy", drift),
             Step(480, "meter replaced", _csms(meter_factor={}))]
 
 
@@ -287,7 +287,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario("auth-slow", "RFID auth backend slow", "Card checks take 35 s, so sessions fail to start everywhere.",
              "backend: RFID auth service slow; sessions failed to start", 360, _auth_slow, _auth_cleanup, "🔑",
              ("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE")),
-    Scenario("meter-drift", "Meter drift", "One hub charger's energy meter reads 3x the real energy: wrong bills.",
+    Scenario("meter-drift", "Meter drift", "One hub charger's energy meter reads 1.8x the real energy: wrong bills.",
              "hardware: energy meter drifting on one charger", 500, _meter_drift, _meter_cleanup, "📏", ("A2-HUB",)),
     Scenario("ignores-limit", "Charger ignores its power limit", "A hub charger accepts a 20 kW limit but keeps "
              "drawing full power.", "firmware: charger accepts power limits but does not apply them", 300,

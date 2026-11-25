@@ -13,9 +13,11 @@ RECOVER_AFTER_S = 60
 DRIFT_MIN_S = 300  # watch a session this long before judging its meter
 DRIFT_MIN_KWH = 3.0
 # Energy register vs integrated power. Honest simulated meters measured 0.76-1.31 over 5 min windows (median 1.01),
-# so only gross errors are flagged.
-DRIFT_BAND = (0.5, 2.0)
+# so only clear errors are flagged; impossible single readings are handled as jumps, not drift.
+DRIFT_BAND = (0.5, 1.6)
 OVER_LIMIT_FACTOR, OVER_LIMIT_W, OVER_LIMIT_S = 1.15, 2000, 60
+JUMP_HEADROOM, JUMP_SLACK_WH = 1.25, 100  # a reading may exceed rated power x time by this much before it's impossible
+JUMP_REPEAT, JUMP_WINDOW_S, JUMP_QUIET_S = 3, 3600, 1800
 
 
 def _calm_for(inc, ok: bool, now: float) -> bool:
@@ -68,9 +70,16 @@ async def backend_backlog(m, snapshot: Mapping) -> None:
         m._close(key, f"Replies back to {latency:.1f} s.", short="backend ok")
 
 
+def _rated_w(m, site: str) -> float:
+    return float(m.sites.get(site, {}).get("power_w") or 22_000)
+
+
 async def meter_drift(m, snapshot: Mapping, now: float) -> None:
-    """Cross-check each session's energy register against the power it reported, integrated over time."""
+    """Two checks per session. Jump: one reading rose more than the charger can physically deliver in the time
+    since the last one (bad data or firmware). Drift: over 5+ minutes, plausible readings disagree with the
+    integrated power (a meter reading wrong)."""
     live = set()
+    jumps: list[tuple[str, str, float, float, float]] = []
     for st in snapshot.get("stations", []):
         for c in st.get("connectors", []):
             tx = c.get("transaction_id")
@@ -78,22 +87,32 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
                 continue
             k = f"{st['id']}#{c['id']}"
             live.add(k)
+            energy = c.get("energy_wh") or 0.0
             w = m.meters.get(k)
             if w is None or w["tx"] != tx:
-                m.meters[k] = {"tx": tx, "t0": now, "last": now, "e0": c.get("energy_wh") or 0.0, "integral": 0.0,
-                               "station": st["id"], "site": st["site"]}
+                m.meters[k] = {"tx": tx, "t0": now, "last": now, "e0": energy, "integral": 0.0, "station": st["id"],
+                               "site": st["site"], "e_prev": energy, "t_prev": now, "jumped_wh": 0.0}
                 continue
             w["integral"] += (c.get("power_w") or 0.0) * (now - w["last"]) / 3600
             w["last"] = now
-            w["energy"] = c.get("energy_wh") or 0.0
+            if energy != w["e_prev"]:
+                rise, dt = energy - w["e_prev"], now - w["t_prev"]
+                allowed = _rated_w(m, st["site"]) * dt / 3600 * JUMP_HEADROOM + JUMP_SLACK_WH
+                if rise > allowed:
+                    jumps.append((st["id"], st["site"], rise, dt, allowed))
+                    w["jumped_wh"] += rise  # keep impossible readings out of the drift check
+                w["e_prev"], w["t_prev"] = energy, now
+            w["energy"] = energy
     for k in [k for k in m.meters if k not in live]:
         m.meters.pop(k)
+    for sid, site, rise, dt, allowed in jumps:
+        await _meter_jump(m, sid, site, rise, dt, allowed, now)
 
     drifting: dict[str, float] = {}
     for w in m.meters.values():
         if now - w["t0"] < DRIFT_MIN_S or w["integral"] < DRIFT_MIN_KWH * 1000 or "energy" not in w:
             continue
-        ratio = (w["energy"] - w["e0"]) / w["integral"]
+        ratio = (w["energy"] - w["e0"] - w["jumped_wh"]) / w["integral"]
         if not DRIFT_BAND[0] <= ratio <= DRIFT_BAND[1]:
             drifting[w["station"]] = ratio
     for sid, ratio in drifting.items():
@@ -102,17 +121,49 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
             continue
         site = sid.rsplit("-", 1)[0]
         inc = m._new(key, "meter_drift", "warning", f"{sid} meter disagrees with its own power readings", site, [sid])
-        inc.add("detected", f"The energy register moved {ratio:.2f}x what its power readings add up to: drivers "
-                            f"may be billed wrongly.", short="meter drift")
+        inc.add("detected", f"Over 5+ minutes the energy register moved {ratio:.2f}x what its power readings add up "
+                            f"to: drivers may be billed wrongly.", short="meter drift")
         inc.add("response", "Billing hold on this charger's sessions until the meter is checked.", "auto-rule",
                 short="billing hold")
         await m._ask(inc, "calibration", {"station": sid}, f"Book a meter calibration visit for {sid}?",
-                     "Needed for billing accuracy (about €150); the charger keeps working meanwhile.", timeout_s=90)
+                     "A steady disagreement points at the meter itself (about €150); the charger keeps working "
+                     "meanwhile.", timeout_s=90)
     for key in [k for k in m.open if k.startswith("meter:")]:
         sid = key.split(":", 1)[1]
         watched = [w for w in m.meters.values() if w["station"] == sid and now - w["t0"] >= DRIFT_MIN_S]
         if watched and sid not in drifting and _calm_for(m.open[key], True, now):
             m._close(key, "Energy and power readings agree again; billing hold lifted.", short="meter ok")
+    for key in [k for k in m.open if k.startswith("jump:")]:
+        inc = m.open[key]
+        if now - inc.memo.get("last_jump", now) >= JUMP_QUIET_S:
+            m._close(key, f"No impossible readings for {JUMP_QUIET_S // 60} min; affected sessions stay on billing "
+                          f"hold for review.", short="readings ok")
+
+
+async def _meter_jump(m, sid: str, site: str, rise: float, dt: float, allowed: float, now: float) -> None:
+    key = f"jump:{sid}"
+    detail = (f"Energy rose {rise / 1000:.1f} kWh in {dt:.0f} s; a {_rated_w(m, site) / 1000:.0f} kW charger can "
+              f"deliver at most {allowed / 1000:.1f} kWh in that time.")
+    inc = m.open.get(key)
+    if inc is None:
+        inc = m._new(key, "meter_jump", "warning", f"{sid} meter reported an impossible reading", site, [sid])
+        inc.add("detected", detail + " That's bad data (firmware or meter communication), not a slow meter.",
+                short="impossible reading")
+        inc.add("response", "Billing hold on the affected session; asked the charger for fresh meter values.",
+                "auto-rule", short="billing hold")
+        try:
+            await m.clients.csms.trigger(sid, "MeterValues")
+        except Exception as exc:  # noqa: BLE001 - a failed request must not stop detection
+            inc.add("response", f"Meter values request failed: {exc}.", "auto-rule", short="request failed")
+        inc.memo["jumps"] = []
+    inc.memo["jumps"] = [t for t in inc.memo.get("jumps", []) if now - t <= JUMP_WINDOW_S] + [now]
+    inc.memo["last_jump"] = now
+    if len(inc.memo["jumps"]) > 1:
+        inc.add("update", f"Again: {detail}", short="again")
+    if len(inc.memo["jumps"]) >= JUMP_REPEAT and not m._asked(inc, "vendor_ticket"):
+        await m._ask(inc, "vendor_ticket", {"station": sid}, f"Open a firmware ticket with the vendor for {sid}?",
+                     f"{len(inc.memo['jumps'])} impossible readings within an hour: likely a firmware or meter "
+                     f"communication bug. A technician visit wouldn't fix it.", timeout_s=90)
 
 
 async def ignores_limit(m, snapshot: Mapping, now: float) -> None:

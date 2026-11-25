@@ -180,6 +180,8 @@ class IncidentManager:
                                "Restarted the stuck backend worker.", "worker restart"),
             "calibration": (None, "Meter calibration visit booked (simulated). Sessions stay on billing hold.",
                             "calibration"),
+            "vendor_ticket": (None, "Firmware ticket opened with the charger vendor (simulated), with the impossible "
+                                    "readings attached.", "vendor ticket"),
         }
         call, text, short = steps[action]
         try:

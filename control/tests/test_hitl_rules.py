@@ -38,7 +38,7 @@ def make(enabled=True):
     t = [0.0]
     book = DecisionBook(enabled=enabled, timeout_s=30, clock=lambda: t[0])
     limits = Limits()
-    m = IncidentManager([{"code": "S"}], Clients(), clock=lambda: t[0], book=book, limits=limits)
+    m = IncidentManager([{"code": "S", "power_w": 150_000}], Clients(), clock=lambda: t[0], book=book, limits=limits)
     return m, t, book, limits
 
 
@@ -95,7 +95,7 @@ async def test_meter_that_runs_fast_is_caught_and_honest_ones_are_not():
     for step in range(0, DRIFT_MIN_S + 30, 10):
         t[0] = step
         honest = charging("S-1", energy=50_000 * step / 3600, power=50_000)
-        fast = charging("S-2", energy=3.0 * 50_000 * step / 3600, power=50_000)
+        fast = charging("S-2", energy=1.8 * 50_000 * step / 3600, power=50_000)
         noisy = charging("S-3", energy=1.3 * 50_000 * step / 3600, power=50_000)  # like the noisiest honest meter
         await m.observe(snap(stations=[honest, fast, noisy]))
     kinds = {k for k in m.open}
@@ -146,3 +146,28 @@ async def test_scheduled_answer_is_reported_honestly():
     await m._run(inc, "inoperative", {"station": "S-1"}, "auto-rule")
     assert "when the current session ends" in inc.timeline[-1]["text"]
     assert inc.timeline[-1]["short"] == "out of service (scheduled)"
+
+
+class TriggerCsms(Csms):
+    async def trigger(self, sid, message="StatusNotification", connector_id=None):
+        self.calls.append(("trigger", sid, message))
+
+
+async def test_impossible_jump_is_its_own_incident_and_stays_out_of_the_drift_check():
+    t = [0.0]
+    book = DecisionBook(enabled=False, clock=lambda: t[0])
+    clients = Clients()
+    clients.csms = TriggerCsms()
+    m = IncidentManager([{"code": "S", "power_w": 22_000}], clients, clock=lambda: t[0], book=book)
+    energy = 0.0
+    for step in range(0, 600, 30):
+        t[0] = step
+        energy += 22_000 * 30 / 3600 * 0.8  # honest 80 % of rated power
+        if step in (300, 330, 360):
+            energy += 14_000  # the simulator's impossible jump
+        await m.observe(snap(stations=[charging("S-1", energy=energy, power=22_000 * 0.8)]))
+    assert set(m.open) == {"jump:S-1"}  # no false drift incident
+    inc = m.open["jump:S-1"]
+    assert [e["short"] for e in inc.timeline][:2] == ["impossible reading", "billing hold"]
+    assert ("trigger", "S-1", "MeterValues") in clients.csms.calls
+    assert inc.memo["vendor_ticket"]  # third jump in an hour: vendor ticket (auto, approval off)
