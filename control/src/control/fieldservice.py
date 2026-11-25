@@ -79,8 +79,9 @@ class FieldService:
                     inc.add("response", job.finding, "technician", short="fixed on site")
                     inc.memo["field_fixed"] = True
                     if job.incident_key.startswith(("meter:", "jump:")):
-                        manager._close(job.incident_key, "Meter checked on site; billing hold lifted.", "technician",
-                                       short="resolved")
+                        inc.release_billing("Billing released: meter verified on site; held sessions re-billed from "
+                                            "the verified meter.", "technician")
+                        manager._close(job.incident_key, "Meter checked on site.", "technician", short="resolved")
         for jid in [j.id for j in self.jobs.values() if j.status == "done" and now - j.done_at > 3600]:
             self.jobs.pop(jid)
 

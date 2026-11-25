@@ -173,6 +173,15 @@ async def test_impossible_jump_is_its_own_incident_and_stays_out_of_the_drift_ch
     assert [e["short"] for e in inc.timeline][:2] == ["impossible reading", "billing hold"]
     assert ("trigger", "S-1", "MeterValues") in clients.csms.calls
     assert inc.memo["vendor_ticket"]  # third jump in an hour: vendor ticket (auto, approval off)
+    assert inc.to_json(t[0])["billing"] == {"held_since": inc.memo["hold_since"], "released": None}
+    for step in range(600, 600 + 1900, 30):  # 30 quiet minutes
+        t[0] = step
+        energy += 22_000 * 30 / 3600 * 0.8
+        await m.observe(snap(stations=[charging("S-1", energy=energy, power=22_000 * 0.8)]))
+    assert not m.open
+    done = m.closed[0]
+    assert [e["short"] for e in done.timeline][-2:] == ["billing released", "readings ok"]
+    assert done.to_json(t[0])["billing"]["released"]
 
 
 

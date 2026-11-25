@@ -204,10 +204,14 @@ function renderCallouts() {
 const clockIn = (s) => new Date(Date.now() + s * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const dur = (s) => (s == null ? "–" : s >= 3600 ? `${Math.floor(s / 3600)}${NB}h ${Math.round((s % 3600) / 60)}${NB}min` : s >= 60 ? `${Math.round(s / 60)}${NB}min` : `${s}${NB}s`);
 
+const hm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const billing = (i) => !i.billing ? "" : i.billing.released ? ` · billing released ${hm(i.billing.released)}`
+  : ` · billing on hold since ${hm(i.billing.held_since)}`;
+
 function incidentAge(i) {
-  if (i.status === "recovered") return `fixed in ${dur(i.ttr_s)}`;
+  if (i.status === "recovered") return `fixed in ${dur(i.ttr_s)}${billing(i)}`;
   const eta = i.eta?.in_s != null ? ` · fix ~${clockIn(i.eta.in_s)} (${esc(i.eta.basis)})` : i.eta ? ` · ${esc(i.eta.basis)}` : "";
-  return `${i.status === "monitoring" ? "watching · " : ""}${dur(i.age_s)} open${eta}`;
+  return `${i.status === "monitoring" ? "watching · " : ""}${dur(i.age_s)} open${eta}${billing(i)}`;
 }
 
 function metricsLine(i) {

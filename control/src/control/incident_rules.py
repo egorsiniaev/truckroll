@@ -150,8 +150,7 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
                             f"to: drivers may be billed wrongly.", short="meter drift")
         if sid in m.meter_diag:
             inc.add("update", m.meter_diag.pop(sid), short="diagnostics")
-        inc.add("response", "Billing hold on this charger's sessions until the meter is checked.", "auto-rule",
-                short="billing hold")
+        inc.hold_billing("Billing hold on this charger's sessions until the meter is checked.")
         await m._ask(inc, "calibration", {"station": sid}, f"Book a meter calibration visit for {sid}?",
                      "A steady disagreement points at the meter itself (about €150); the charger keeps working "
                      "meanwhile.", timeout_s=90)
@@ -159,12 +158,14 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
         sid = key.split(":", 1)[1]
         watched = [w for w in m.meters.values() if w["station"] == sid and w.get("armed") and now - w["t0"] >= DRIFT_MIN_S]
         if watched and sid not in drifting and _calm_for(m.open[key], True, now):
-            m._close(key, "Energy and power readings agree again; billing hold lifted.", short="meter ok")
+            m.open[key].release_billing("Billing released: readings agree again, held sessions billed as metered.")
+            m._close(key, "Energy and power readings agree again.", short="meter ok")
     for key in [k for k in m.open if k.startswith("jump:")]:
         inc = m.open[key]
         if now - inc.memo.get("last_jump", now) >= JUMP_QUIET_S:
-            m._close(key, f"No impossible readings for {JUMP_QUIET_S // 60} min; affected sessions stay on billing "
-                          f"hold for review.", short="readings ok")
+            inc.release_billing("Billing released: held sessions re-billed from their power readings, not the "
+                                "faulty register.")
+            m._close(key, f"No impossible readings for {JUMP_QUIET_S // 60} min.", short="readings ok")
 
 
 async def _meter_jump(m, sid: str, site: str, rise: float, dt: float, allowed: float, now: float) -> None:
@@ -176,8 +177,8 @@ async def _meter_jump(m, sid: str, site: str, rise: float, dt: float, allowed: f
         inc = m._new(key, "meter_jump", "warning", f"{sid} meter reported an impossible reading", site, [sid])
         inc.add("detected", detail + " That's bad data (firmware or meter communication), not a slow meter.",
                 short="impossible reading")
-        inc.add("response", "Billing hold on the affected session; asked the charger for fresh meter values.",
-                "auto-rule", short="billing hold")
+        inc.hold_billing("Billing hold on the affected session.")
+        inc.add("response", "Asked the charger for fresh meter values.", "auto-rule", short="meter values requested")
         try:
             await m.clients.csms.trigger(sid, "MeterValues")
         except Exception as exc:  # noqa: BLE001 - a failed request must not stop detection

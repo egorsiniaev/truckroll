@@ -49,6 +49,10 @@ def _iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _parse(iso: str) -> datetime:
+    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+
 def _dur(seconds: float) -> str:
     m, s = divmod(int(seconds), 60)
     return f"{m} min {s} s" if m else f"{s} s"
@@ -75,6 +79,16 @@ class Incident:
         """short: two or three words for the one-line incident summary."""
         self.timeline.append({"time": _iso(), "type": kind, "actor": actor, "text": text, "short": short or kind})
 
+    def hold_billing(self, text: str, actor: str = "auto-rule") -> None:
+        if not self.memo.get("hold_since"):
+            self.memo["hold_since"] = _iso()
+            self.add("response", text, actor, short="billing hold")
+
+    def release_billing(self, text: str, actor: str = "system") -> None:
+        if self.memo.get("hold_since") and not self.memo.get("hold_released"):
+            self.memo["hold_released"] = _iso()
+            self.add("response", text, actor, short="billing released")
+
     def metrics(self) -> dict:
         """Time to detect / acknowledge / mitigate / resolve, in seconds from the problem's start or the alert."""
         opened = datetime.fromisoformat(self.opened.replace("Z", "+00:00"))
@@ -96,8 +110,11 @@ class Incident:
     def to_json(self, now: float) -> dict:
         return {"id": self.id, "kind": self.kind, "severity": self.severity, "title": self.title, "site": self.site,
                 "stations": self.stations, "opened": self.opened, "status": self.status,
-                "recovered": self.recovered, "ttr_s": self.ttr_s, "age_s": round(now - self.opened_at),
-                "timeline": self.timeline, "metrics": self.metrics(), "eta": self.memo.get("eta")}
+                "recovered": self.recovered, "ttr_s": self.ttr_s,
+                "age_s": round((datetime.now(UTC) - _parse(self.opened)).total_seconds()),
+                "timeline": self.timeline, "metrics": self.metrics(), "eta": self.memo.get("eta"),
+                "billing": {"held_since": self.memo.get("hold_since"), "released": self.memo.get("hold_released")}
+                if self.memo.get("hold_since") else None}
 
 
 class IncidentManager:
@@ -123,7 +140,9 @@ class IncidentManager:
     # ---- survive restarts ---------------------------------------------------------------
     def to_state(self, clocks: Clocks) -> dict:
         def inc(i: Incident) -> dict:
-            memo = {k: (clocks.to_wall(v) if k in TIME_MEMOS else v) for k, v in i.memo.items()}
+            # Timers are saved tagged as wall-clock time, so a later version never misreads them.
+            memo = {k: ({"wall": clocks.to_wall(v)} if k in TIME_MEMOS and isinstance(v, (int, float)) else v)
+                    for k, v in i.memo.items()}
             return {**i.__dict__, "opened_at": clocks.to_wall(i.opened_at), "symptom_at": clocks.to_wall(i.symptom_at),
                     "memo": memo}
 
@@ -138,7 +157,14 @@ class IncidentManager:
 
     def from_state(self, data: dict, clocks: Clocks) -> None:
         def inc(d: dict) -> Incident:
-            memo = {k: (clocks.to_mono(v) if k in TIME_MEMOS else v) for k, v in d.get("memo", {}).items()}
+            memo = {}
+            for k, v in d.get("memo", {}).items():
+                if isinstance(v, dict) and set(v) == {"wall"}:
+                    memo[k] = clocks.to_mono(v["wall"])
+                elif k in TIME_MEMOS and isinstance(v, (int, float)):
+                    continue  # untagged timer from an older version: unreliable, so it restarts
+                else:
+                    memo[k] = v
             return Incident(**{**d, "opened_at": clocks.to_mono(d["opened_at"]),
                                 "symptom_at": clocks.to_mono(d.get("symptom_at")), "memo": memo})
 
@@ -183,7 +209,8 @@ class IncidentManager:
         inc = self.open.pop(key)
         self.book.cancel_for(inc.id)
         inc.status, inc.recovered = "recovered", _iso()
-        inc.ttr_s = round(self.clock() - inc.opened_at)
+        # From the stored wall-clock opening time: correct across restarts, unlike the process clock.
+        inc.ttr_s = round((datetime.now(UTC) - _parse(inc.opened)).total_seconds())
         inc.add("recovered", f"{text} Time to recover: {_dur(inc.ttr_s)}.", actor, short)
         self.closed.appendleft(inc)
         if self.on_closed is not None:
@@ -212,8 +239,11 @@ class IncidentManager:
             if inc is not None:
                 timed_out = d.decided_by == "timeout"
                 actor = "auto-rule" if timed_out else "operator"
+                late = timed_out and self.clock() - d.deadline_at > 30
+                note = (" (no answer in time; ran late: the service was down at the deadline)" if late
+                        else " (no answer in time)" if timed_out else " (approved)")
                 if d.status == "approved":
-                    await self._run(inc, d.action, d.params, actor, " (no answer in time)" if timed_out else " (approved)")
+                    await self._run(inc, d.action, d.params, actor, note)
                 else:
                     inc.memo.setdefault("declined", []).append(d.action)
                     inc.add("update", f"{'No answer, default is no' if timed_out else 'Operator said no'}: "

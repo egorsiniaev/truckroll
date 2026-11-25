@@ -43,3 +43,16 @@ def test_open_incident_with_pending_timer_survives():
     assert restored.memo["reset_at"] == 3.0 - 40.0  # 10 s before save + 30 s down
     assert again._offline_since["S-2"] == 3.0 - 80.0
     assert again._new("x", "fault", "info", "t", "S", []).id != inc.id  # numbering continues
+
+
+
+def test_untagged_timers_from_an_older_version_are_dropped_not_misread():
+    m = IncidentManager([{"code": "S"}], clients=None, clock=lambda: 10.0)
+    saved = {"seq": 2, "open": {"jump:S-1": {
+        "id": "INC-0001", "kind": "meter_jump", "severity": "warning", "title": "t", "site": "S", "stations": ["S-1"],
+        "opened": "2026-11-25T11:40:31Z", "opened_at": 1000.0, "timeline": [], "status": "open", "recovered": None,
+        "ttr_s": None, "memo": {"last_jump": 98765.4, "jumps": [1.0], "reset_at": {"wall": 1005.0}}}},
+        "closed": [], "offline_since": {}, "drops": {}, "prev_state": {}}
+    m.from_state(saved, Clocks(mono=10.0, wall=1010.0))
+    memo = m.open["jump:S-1"].memo
+    assert "last_jump" not in memo and memo["reset_at"] == 5.0 and memo["jumps"] == [1.0]
