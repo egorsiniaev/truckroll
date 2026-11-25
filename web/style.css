@@ -459,3 +459,12 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 
 .title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .title .live { margin-left: 0; white-space: nowrap; }
+
+.scenario { border-top: 1px solid var(--line); padding: 8px 14px 10px; font-size: 12px; }
+.scenario .label { text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-size: 11px; margin-right: 6px; }
+.scenario .row { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.scenario .row small { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.scenario.on { background: #fffbeb; border-radius: 0 0 var(--radius) var(--radius); }
+.scenario .bar { height: 4px; background: #fde68a; border-radius: 99px; margin: 6px 0 4px; overflow: hidden; }
+.scenario .bar i { display: block; height: 100%; background: #d97706; transition: width 1s linear; }
+.scenario p { margin: 0; text-wrap: pretty; }

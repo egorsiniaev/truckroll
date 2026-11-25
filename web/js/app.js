@@ -154,14 +154,31 @@ function renderHeader() {
   const errs = Object.keys(snapshot.upstream_errors || {});
   live.className = `live ${errs.length ? "err" : "ok"}`;
   live.textContent = errs.length ? `degraded: ${errs.join(", ")}` : "live";
-  const banner = document.getElementById("banner");
-  const run = snapshot.scenario?.running;
-  banner.hidden = !run;
-  if (run) banner.textContent = `${run.icon ?? ""} Scenario: ${run.title} (${Math.round(run.elapsed_s)}/${run.duration_s}${NB}s)`;
+  renderScenario(snapshot);
   if (snapshot.grafana_url) document.getElementById("grafana").href = snapshot.grafana_url;
 }
 
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+function renderScenario(snapshot) {
+  const box = document.getElementById("scenario");
+  const run = snapshot.scenario?.running;
+  const auto = snapshot.autopilot;
+  box.classList.toggle("on", !!run);
+  if (!run) {
+    const next = !auto?.enabled ? "random scenarios are off"
+      : auto.next_in_s != null ? `next random one in${NB}~${dur(Math.round(auto.next_in_s))}` : "random scenarios are on";
+    box.innerHTML = `<span class="label">Scenario</span> <span class="muted">none running · ${next}</span>`;
+    return;
+  }
+  const pct = Math.min(100, Math.round((100 * run.elapsed_s) / run.duration_s));
+  const where = (run.stations?.length ? run.stations : run.sites ?? []).join(", ");
+  const step = run.steps_done?.at(-1);
+  box.innerHTML = `<div class="row"><span class="label">Scenario</span><b>${run.icon ?? ""} ${esc(run.title)}</b>
+      <small>${dur(Math.round(run.elapsed_s))} of${NB}${dur(run.duration_s)}</small></div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    ${where ? `<p class="muted">${esc(where)}${step ? ` · ${esc(step)}` : ""}</p>` : ""}`;
+}
+
 const ACTOR = { system: "", "auto-rule": "auto rule", operator: "operator", scenario: "scenario", agent: "AI agent", technician: "technician" };
 const STEP = { detected: "What", response: "Response", update: "Update", recovered: "Recovered", triage: "Agent", decision: "Asks" };
 
