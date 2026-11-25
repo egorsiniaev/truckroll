@@ -1,12 +1,19 @@
 {$TRUCKROLL_HOST} {
 	encode zstd gzip
-	# Whole site behind a login until the public page exists: the control panel can start scenarios.
-	import /etc/caddy/secrets/auth.caddy
 	handle /grafana* {
-		# The site login is checked above; Grafana must not see that header.
+		# Public and read-only (Viewer); a stray login header must not reach Grafana.
 		reverse_proxy grafana:3000 {
 			header_up -Authorization
 		}
+	}
+	# Anyone can watch; changing anything (control panel, decisions, reports) needs the owner's login.
+	@write {
+		path /api/*
+		not method GET HEAD OPTIONS
+	}
+	handle @write {
+		import /etc/caddy/secrets/auth.caddy
+		reverse_proxy control:8000
 	}
 	handle {
 		reverse_proxy control:8000 {

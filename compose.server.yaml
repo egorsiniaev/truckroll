@@ -24,10 +24,10 @@ services:
 
   grafana:
     environment:
-      # Served at /grafana behind the site login; no admin rights for anonymous users on the server.
+      # Public at /grafana, read-only for everyone.
       GF_SERVER_ROOT_URL: https://truckroll.siniaev.dev/grafana/
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_AUTH_BASIC_ENABLED: "false"
 
   csms:
