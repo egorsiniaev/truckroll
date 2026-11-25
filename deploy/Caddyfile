@@ -6,9 +6,11 @@
 			header_up -Authorization
 		}
 	}
-	# Anyone can watch; changing anything (control panel, decisions, reports) needs the owner's login.
+	# Anyone can watch and answer the agent's questions (approve / reject); the control panel and reports
+	# need the owner's login.
 	@write {
 		path /api/*
+		not path /api/decisions/*
 		not method GET HEAD OPTIONS
 	}
 	handle @write {

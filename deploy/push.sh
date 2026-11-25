@@ -9,4 +9,4 @@ rsync -az --delete --exclude .git --exclude '.env*' --exclude .venv --exclude no
   --exclude __pycache__ --exclude .pytest_cache --exclude observability/data ./ "$HOST:/opt/truckroll/"
 ssh "$HOST" 'cd /opt/truckroll && C="docker compose -f compose.yaml -f compose.server.yaml" &&
   BUILDX_NO_DEFAULT_ATTESTATIONS=1 $C build control csms && $C up -d --remove-orphans &&
-  $C exec -T caddy caddy reload --config /etc/caddy/Caddyfile'
+  $C exec -T caddy caddy reload --config /etc/caddy/conf/Caddyfile'

@@ -29,3 +29,8 @@ Every deploy rebuilt the simulator from its git source, which recreated it and c
 start was skipped whenever any state had been restored. Fixed: deploys build only our services; the first tick tops
 each site up to half an hour of arrivals, and a site whose sessions are all cut at once refills when its chargers
 are back online.
+
+## 2026-11-25: Caddy config changes not applied; short outage while fixing it
+The Caddyfile was bind-mounted as a single file; rsync replaces files, so the container kept the old one and a
+reload changed nothing. Moving the mount to the folder at /etc/caddy failed (the secrets mount can't sit inside a
+read-only folder) and the site was down for about 2 minutes. Now the folder is mounted at /etc/caddy/conf.
