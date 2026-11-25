@@ -121,7 +121,7 @@ class PriceClient:
             "periodEnd": end.strftime("%Y%m%d%H%M"),
         }
         try:
-            res = await self._http.get(URL, params=params, timeout=20.0)
+            res = await self._http.get(URL, params=params, timeout=60.0)  # ENTSO-E takes ~16 s from Hetzner; runs in its own loop
         except httpx.HTTPError as exc:
             raise PriceError(f"request failed: {exc.__class__.__name__}") from None
         if res.status_code == 401:

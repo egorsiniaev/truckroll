@@ -38,6 +38,7 @@ DEMAND_EVERY_S = 5
 AGENT_EVERY_S = 5
 WORLD_EVERY_S = 60
 WEATHER_EVERY_S = 600
+FEEDS_EVERY_S = 30  # weather and prices: each has its own cadence inside
 PRICES_EVERY_S = 3600
 PRICES_RETRY_S = 600
 SAVE_EVERY_S = 60
@@ -294,8 +295,6 @@ class Hub:
                 backend = await self.clients.csms.stats()
             except UpstreamError as exc:
                 errors["csms-stats"] = str(exc)
-        await self.refresh_weather()
-        await self.refresh_prices()
         if self.weather_error:
             errors["weather"] = self.weather_error
         if self.prices_error:
@@ -450,6 +449,10 @@ class Hub:
         if self.agent is not None and self.snapshot.get("stations"):
             await self.agent.tick(self.incidents, {**self.snapshot, "events": list(self.events), "prices": self.prices})
 
+    async def feeds_once(self) -> None:
+        await self.refresh_weather()
+        await self.refresh_prices()
+
     async def _loop(self, name: str, step, every_s: float) -> None:
         while True:
             try:
@@ -462,7 +465,8 @@ class Hub:
         # Slow upstreams (simulator commands, Gemini) run in their own loops, so they can never freeze the
         # 2 s poll that keeps the map, detection and decisions current.
         side = [asyncio.create_task(self._loop("demand", self.demand_once, DEMAND_EVERY_S)),
-                asyncio.create_task(self._loop("agent", self.agent_once, AGENT_EVERY_S))]
+                asyncio.create_task(self._loop("agent", self.agent_once, AGENT_EVERY_S)),
+                asyncio.create_task(self._loop("feeds", self.feeds_once, FEEDS_EVERY_S))]
         try:
             await self._loop("poll", self.poll_once, POLL_S)
         finally:
