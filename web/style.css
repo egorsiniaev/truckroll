@@ -435,3 +435,24 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 .handover-card { background: #fff; border-radius: 14px; box-shadow: var(--shadow); width: min(640px, 92vw); padding: 18px 20px; max-height: 80vh; overflow: auto; font-size: 13px; }
 .handover-card ul.ai { margin: 8px 0 4px; padding-left: 18px; }
 .handover-card ul.ai li { margin: 4px 0; text-wrap: pretty; }
+/* KPI chips: shrink with the window down to a minimum, then wrap to a second row */
+.kpis { flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: clamp(4px, 0.6vw, 10px); min-width: 0; }
+.kpi { flex: 1 1 0; min-width: 112px; max-width: 190px; padding: clamp(3px, 0.35vw, 6px) clamp(6px, 0.8vw, 12px) clamp(3px, 0.35vw, 6px) clamp(3px, 0.35vw, 6px); gap: clamp(5px, 0.6vw, 10px); }
+.kpi svg { width: clamp(24px, 2.2vw, 34px); height: clamp(24px, 2.2vw, 34px); flex: none; }
+.kpi > div { min-width: 0; }
+.kpi b { font-size: clamp(12px, 1.05vw, 15px); overflow: hidden; text-overflow: ellipsis; }
+.kpi span { font-size: clamp(9.5px, 0.75vw, 11px); overflow: hidden; text-overflow: ellipsis; display: block; }
+.metrics { flex: 0 0 auto; padding: clamp(6px, 0.6vw, 9px) clamp(8px, 0.9vw, 14px); font-size: clamp(11px, 0.8vw, 12px); }
+.brand { min-width: clamp(240px, 22vw, 300px); }
+.brand h1 { font-size: clamp(18px, 1.5vw, 22px); }
+/* Chips size to their content (never cut text); the row wraps before anything gets truncated */
+.kpi { flex: 0 1 auto; min-width: 0; max-width: none; }
+.kpi b, .kpi span { overflow: visible; text-overflow: clip; white-space: nowrap; }
+/* Size chips from the space the header actually has: shrink first, wrap only at the minimum sizes */
+.kpis { container-type: inline-size; flex: 1 1 0; }
+.kpi { gap: clamp(4px, 0.7cqi, 10px); padding: clamp(3px, 0.45cqi, 6px) clamp(6px, 0.9cqi, 12px) clamp(3px, 0.45cqi, 6px) clamp(3px, 0.45cqi, 6px); }
+.kpi svg { width: clamp(24px, 2.6cqi, 34px); height: clamp(24px, 2.6cqi, 34px); }
+.kpi b { font-size: clamp(12px, 1.12cqi, 15px); }
+.kpi span { font-size: clamp(9.5px, 0.84cqi, 11px); }
+.metrics { padding: clamp(5px, 0.6cqi, 9px) clamp(8px, 1cqi, 14px); font-size: clamp(10.5px, 0.9cqi, 12px); }
+.kpis { gap: clamp(4px, 0.6cqi, 10px); }
