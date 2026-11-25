@@ -79,6 +79,7 @@ class Hub:
     _due: dict = field(default_factory=dict)
     _reconciled: bool = False
     _last_poll: float = 0.0
+    _fixes_applied: set = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self.limits = LimitArbiter(self.clients.csms)
@@ -112,6 +113,7 @@ class Hub:
             "economics": {c: led.__dict__ for c, led in self.economics.today.items()},
             "battery_soc_kwh": {c: b.soc_kwh for c, b in self.batteries.batteries.items()},
             "saved_wall": clocks.wall,
+            "fixes": sorted(self._fixes_applied),
             "demand": self.demand.to_state(clocks),
             "incidents": self.incidents.to_state(clocks),
         }
@@ -156,6 +158,7 @@ class Hub:
                 self.book.from_state(data["decisions"], clocks)
         except (KeyError, TypeError, ValueError) as exc:
             log.warning("could not restore queue/incidents, starting them fresh: %s", exc)
+        self._fixes_applied = set(data.get("fixes", []))
         log.info("restored uptime, money and battery state from %s", self.state_path)
 
     @staticmethod
@@ -321,6 +324,13 @@ class Hub:
     async def _automatic(self, snap: dict) -> None:
         """Everything that acts on its own: cleanup, incidents, controller, real-world mode, autopilot."""
         try:
+            if "meter-baseline-2026-11-25" not in self._fixes_applied:
+                # One-off: drift incidents opened before the stale-baseline fix were false alarms.
+                self._fixes_applied.add("meter-baseline-2026-11-25")
+                for key in [k for k in self.incidents.open if k.startswith("meter:")]:
+                    self.incidents._close(key, "Closed as a false alarm: the drift check used the previous session's "
+                                               "last reading as this session's start (detector bug, fixed). The meter "
+                                               "was fine.", "system", short="false alarm")
             if not self._reconciled:
                 self._reconciled = True
                 cleared = await self.limits.reconcile(snap["stations"])

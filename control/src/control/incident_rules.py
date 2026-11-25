@@ -90,9 +90,21 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
             energy = c.get("energy_wh") or 0.0
             w = m.meters.get(k)
             if w is None or w["tx"] != tx:
-                m.meters[k] = {"tx": tx, "t0": now, "last": now, "e0": energy, "integral": 0.0, "station": st["id"],
-                               "site": st["site"], "e_prev": energy, "t_prev": now, "jumped_wh": 0.0,
-                               "e_updates": 0, "p_min": None, "p_max": None, "limits": set(), "gap_max": 0.0}
+                # The value seen when a session appears can be the previous session's last reading: wait for this
+                # session's first real update before setting a baseline.
+                m.meters[k] = {"tx": tx, "seen": energy, "armed": False, "station": st["id"], "site": st["site"]}
+                continue
+            if not w["armed"]:
+                if energy == w["seen"]:
+                    continue
+                w.update({"armed": True, "t0": now, "last": now, "e0": energy, "integral": 0.0, "e_prev": energy,
+                          "t_prev": now, "jumped_wh": 0.0, "e_updates": 0, "p_min": None, "p_max": None,
+                          "limits": set(), "gap_max": 0.0})
+                continue
+            if energy < w["e_prev"]:
+                # Registers reset (new session, reboot): that's not drift. Start a fresh baseline.
+                w.update({"t0": now, "last": now, "e0": energy, "integral": 0.0, "e_prev": energy, "t_prev": now,
+                          "jumped_wh": 0.0, "e_updates": 0})
                 continue
             power = c.get("power_w") or 0.0
             w["integral"] += power * (now - w["last"]) / 3600
@@ -117,6 +129,8 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
 
     drifting: dict[str, float] = {}
     for w in m.meters.values():
+        if not w.get("armed"):
+            continue
         if now - w["t0"] < DRIFT_MIN_S or w["integral"] < DRIFT_MIN_KWH * 1000 or "energy" not in w:
             continue
         ratio = (w["energy"] - w["e0"] - w["jumped_wh"]) / w["integral"]
@@ -143,7 +157,7 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
                      "meanwhile.", timeout_s=90)
     for key in [k for k in m.open if k.startswith("meter:")]:
         sid = key.split(":", 1)[1]
-        watched = [w for w in m.meters.values() if w["station"] == sid and now - w["t0"] >= DRIFT_MIN_S]
+        watched = [w for w in m.meters.values() if w["station"] == sid and w.get("armed") and now - w["t0"] >= DRIFT_MIN_S]
         if watched and sid not in drifting and _calm_for(m.open[key], True, now):
             m._close(key, "Energy and power readings agree again; billing hold lifted.", short="meter ok")
     for key in [k for k in m.open if k.startswith("jump:")]:

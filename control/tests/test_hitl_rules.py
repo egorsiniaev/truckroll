@@ -173,3 +173,14 @@ async def test_impossible_jump_is_its_own_incident_and_stays_out_of_the_drift_ch
     assert [e["short"] for e in inc.timeline][:2] == ["impossible reading", "billing hold"]
     assert ("trigger", "S-1", "MeterValues") in clients.csms.calls
     assert inc.memo["vendor_ticket"]  # third jump in an hour: vendor ticket (auto, approval off)
+
+
+
+async def test_previous_sessions_reading_is_never_the_baseline_and_resets_are_not_drift():
+    m, t, book, _ = make(enabled=False)
+    # New session appears while the backend still shows the last session's 180 kWh, then the register restarts.
+    readings = [180_000] * 3 + [50_000 * 10 * k / 3600 for k in range(1, 80)]  # 50 kW, 10 s steps
+    for step, e in enumerate(readings):
+        t[0] = step * 10
+        await m.observe(snap(stations=[charging("S-1", energy=e, power=50_000)]))
+    assert not [k for k in m.open if k.startswith("meter:")]

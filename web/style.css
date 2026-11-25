@@ -413,3 +413,16 @@ tr.close .slo-pill { background: #fef3c7; color: #92400e; } tr.close td.v { colo
 tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { color: #b91c1c; }
 .step.triage { color: #7c3aed; font-weight: 600; } .step.decision { color: #b45309; }
 .inc-row .steps li.triage b { color: #7c3aed; } .inc-row .steps li.decision b { color: #b45309; }
+/* Header: the brand block keeps its width; KPI chips wrap onto a second row instead of squeezing it */
+.top { align-items: flex-start; flex-wrap: nowrap; }
+.brand { flex: 0 0 auto; min-width: 300px; max-width: 420px; }
+.sub { flex-wrap: wrap; }
+.clock { white-space: nowrap; }
+.phase-pill { white-space: nowrap; }
+.kpis { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+/* Incident rows: one line when it fits, wrap to a second or third when it doesn't (never cut the title) */
+.inc-row .line { white-space: normal; flex-wrap: wrap; row-gap: 2px; align-items: baseline; }
+.inc-row .title { max-width: none; overflow: visible; text-overflow: clip; flex: 0 1 auto; }
+.inc-row .chain { flex: 1 1 240px; overflow: visible; text-overflow: clip; white-space: normal; }
+.inc-row .chain .step { white-space: nowrap; }
+.inc-row .sev { align-self: center; }
