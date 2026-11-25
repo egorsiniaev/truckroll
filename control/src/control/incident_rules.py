@@ -91,10 +91,16 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
             w = m.meters.get(k)
             if w is None or w["tx"] != tx:
                 m.meters[k] = {"tx": tx, "t0": now, "last": now, "e0": energy, "integral": 0.0, "station": st["id"],
-                               "site": st["site"], "e_prev": energy, "t_prev": now, "jumped_wh": 0.0}
+                               "site": st["site"], "e_prev": energy, "t_prev": now, "jumped_wh": 0.0,
+                               "e_updates": 0, "p_min": None, "p_max": None, "limits": set(), "gap_max": 0.0}
                 continue
-            w["integral"] += (c.get("power_w") or 0.0) * (now - w["last"]) / 3600
+            power = c.get("power_w") or 0.0
+            w["integral"] += power * (now - w["last"]) / 3600
+            w["gap_max"] = max(w["gap_max"], now - w["last"])  # long gaps mean the poll loop stalled
             w["last"] = now
+            w["p_min"] = power if w["p_min"] is None else min(w["p_min"], power)
+            w["p_max"] = power if w["p_max"] is None else max(w["p_max"], power)
+            w["limits"].add(st.get("limit_w"))
             if energy != w["e_prev"]:
                 rise, dt = energy - w["e_prev"], now - w["t_prev"]
                 allowed = _rated_w(m, st["site"]) * dt / 3600 * JUMP_HEADROOM + JUMP_SLACK_WH
@@ -102,6 +108,7 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
                     jumps.append((st["id"], st["site"], rise, dt, allowed))
                     w["jumped_wh"] += rise  # keep impossible readings out of the drift check
                 w["e_prev"], w["t_prev"] = energy, now
+                w["e_updates"] += 1
             w["energy"] = energy
     for k in [k for k in m.meters if k not in live]:
         m.meters.pop(k)
@@ -115,6 +122,10 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
         ratio = (w["energy"] - w["e0"] - w["jumped_wh"]) / w["integral"]
         if not DRIFT_BAND[0] <= ratio <= DRIFT_BAND[1]:
             drifting[w["station"]] = ratio
+            m.meter_diag[w["station"]] = (
+                f"Diagnostics: window {now - w['t0']:.0f} s, energy {w['energy'] - w['e0']:.0f} Wh vs integrated power "
+                f"{w['integral']:.0f} Wh, {w['e_updates']} energy updates, power {w['p_min'] or 0:.0f}-{w['p_max'] or 0:.0f} W, "
+                f"{len(w['limits'])} different limits, longest gap between checks {w['gap_max']:.0f} s.")
     for sid, ratio in drifting.items():
         key = f"meter:{sid}"
         if key in m.open:
@@ -123,6 +134,8 @@ async def meter_drift(m, snapshot: Mapping, now: float) -> None:
         inc = m._new(key, "meter_drift", "warning", f"{sid} meter disagrees with its own power readings", site, [sid])
         inc.add("detected", f"Over 5+ minutes the energy register moved {ratio:.2f}x what its power readings add up "
                             f"to: drivers may be billed wrongly.", short="meter drift")
+        if sid in m.meter_diag:
+            inc.add("update", m.meter_diag.pop(sid), short="diagnostics")
         inc.add("response", "Billing hold on this charger's sessions until the meter is checked.", "auto-rule",
                 short="billing hold")
         await m._ask(inc, "calibration", {"station": sid}, f"Book a meter calibration visit for {sid}?",

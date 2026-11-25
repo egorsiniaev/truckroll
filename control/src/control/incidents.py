@@ -82,6 +82,7 @@ class IncidentManager:
         self.limits = limits
         self.meters: dict = {}  # per connector: energy vs power cross-check (incident_rules.meter_drift)
         self.over_limit_since: dict[str, float] = {}  # station -> when it went above its limit
+        self.meter_diag: dict[str, str] = {}  # station -> evidence for a drift incident
         self.open: dict[str, Incident] = {}  # key -> incident
         self.closed: deque[Incident] = deque(maxlen=KEEP_CLOSED)
         self._seq = itertools.count(1)

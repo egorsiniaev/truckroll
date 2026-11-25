@@ -100,7 +100,9 @@ async def test_meter_that_runs_fast_is_caught_and_honest_ones_are_not():
         await m.observe(snap(stations=[honest, fast, noisy]))
     kinds = {k for k in m.open}
     assert kinds == {"meter:S-2"}
-    assert [e["short"] for e in m.open["meter:S-2"].timeline][:2] == ["meter drift", "billing hold"]
+    shorts = [e["short"] for e in m.open["meter:S-2"].timeline]
+    assert shorts[:3] == ["meter drift", "diagnostics", "billing hold"]
+    assert "energy updates" in m.open["meter:S-2"].timeline[1]["text"]
 
 
 async def test_charger_over_its_limit_gets_limit_resent_then_taken_out_of_service():
