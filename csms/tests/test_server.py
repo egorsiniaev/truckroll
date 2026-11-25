@@ -205,3 +205,15 @@ async def test_meter_values_with_unknown_transaction_adopt_it(server, fleet):
         assert fleet.get(STATION).connectors[1].transaction_id == 461
         await cp.call(call.StopTransaction(meter_stop=200, timestamp="2026-11-24T10:05:00Z", transaction_id=461))
         assert fleet.get(STATION).connectors[1].transaction_id is None
+
+
+async def test_meter_values_from_an_ended_session_do_not_overwrite_the_current_one(server, fleet):
+    async with station(server) as cp:
+        old = await cp.call(call.StartTransaction(connector_id=1, id_tag="GOOD-TAG", meter_start=0, timestamp="2026-11-24T10:00:00Z"))
+        await cp.call(call.StopTransaction(meter_stop=20000, timestamp="2026-11-24T10:30:00Z", transaction_id=old.transaction_id))
+        new = await cp.call(call.StartTransaction(connector_id=1, id_tag="GOOD-TAG", meter_start=0, timestamp="2026-11-24T10:31:00Z"))
+        await cp.call(call.MeterValues(connector_id=1, transaction_id=new.transaction_id, meter_value=[
+            {"timestamp": "t", "sampled_value": [{"value": "100", "unit": "Wh"}]}]))
+        await cp.call(call.MeterValues(connector_id=1, transaction_id=old.transaction_id, meter_value=[
+            {"timestamp": "t", "sampled_value": [{"value": "20000", "unit": "Wh"}]}]))
+        assert fleet.get(STATION).connectors[1].energy_wh == 100

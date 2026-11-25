@@ -20,6 +20,7 @@ from control.slo import SloTracker
 from control.daylight import daylight
 from control.demand import DemandEngine
 from control.economics import Economics, demand_factor
+from control.fieldservice import FieldService
 from control.incidents import IncidentManager
 from control.limits import SOURCE_LABELS, LimitArbiter
 from control.persist import Clocks
@@ -89,6 +90,8 @@ class Hub:
         self.controller = SiteController(self.sites, self.limits)
         self.book = DecisionBook(enabled=self.hitl_default)
         self.incidents = IncidentManager(self.sites, self.clients, book=self.book, limits=self.limits)
+        self.field = FieldService(self.clients, on_cost=lambda site, eur: self.economics.service(site, eur))
+        self.incidents.field = self.field
         self.slo = SloTracker([s["code"] for s in self.sites])
         self.autopilot = Autopilot(self.runner, enabled=self.autopilot_default)
         self.economics = Economics(self.sites, dynamic=self.dynamic_pricing_default)
@@ -109,6 +112,7 @@ class Hub:
             "uptime": {c: [v.up_s, v.total_s, v.up_x, v.total_x] for c, v in self.uptime.per_site.items()},
             "slo": self.slo.to_state(),
             "decisions": self.book.to_state(clocks),
+            "field": self.field.to_state(clocks),
             "economics_day": self.economics.day,
             "economics": {c: led.__dict__ for c, led in self.economics.today.items()},
             "battery_soc_kwh": {c: b.soc_kwh for c, b in self.batteries.batteries.items()},
@@ -156,6 +160,8 @@ class Hub:
                 self.incidents.from_state(data["incidents"], clocks)
             if "decisions" in data:
                 self.book.from_state(data["decisions"], clocks)
+            if "field" in data:
+                self.field.from_state(data["field"], clocks)
         except (KeyError, TypeError, ValueError) as exc:
             log.warning("could not restore queue/incidents, starting them fresh: %s", exc)
         self._fixes_applied = set(data.get("fixes", []))
@@ -316,7 +322,10 @@ class Hub:
             "grafana_url": self.grafana_url,
             "economics": money,
             "batteries_enabled": self.batteries.enabled,
-            "slo": self.slo.summary(uptime, demand),
+            "slo": self.slo.summary(uptime, demand) + self.slo.response_summary(self.incidents.snapshot(),
+                                                                                 self.book.history),
+            "field_jobs": [j.to_json() | {"in_s": max(0, round(j.done_at - time.monotonic()))}
+                           for j in self.field.jobs.values() if j.status != "done"],
             "decisions": self.book.snapshot(),
             "agent": self.agent.status() if self.agent is not None else None,
         }
@@ -341,6 +350,7 @@ class Hub:
                     self.add_event("info", f"startup: cleared {len(cleared)} leftover power limits")
             await self.limits.retry_pending({s["id"] for s in snap["stations"] if s.get("connected")})
             await self.incidents.observe(snap)
+            await self.field.tick(self.incidents)
             if self._due_now("controller", CONTROLLER_EVERY_S):
                 for ev in await self.controller.tick(snap):
                     self.incidents.grid_cap(ev)

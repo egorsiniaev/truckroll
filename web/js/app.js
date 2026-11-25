@@ -162,7 +162,7 @@ function renderHeader() {
 }
 
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const ACTOR = { system: "", "auto-rule": "auto rule", operator: "operator", scenario: "scenario", agent: "AI agent" };
+const ACTOR = { system: "", "auto-rule": "auto rule", operator: "operator", scenario: "scenario", agent: "AI agent", technician: "technician" };
 const STEP = { detected: "What", response: "Response", update: "Update", recovered: "Recovered", triage: "Agent", decision: "Asks" };
 
 function questionHtml(d, compact = false) {
@@ -201,9 +201,18 @@ function renderCallouts() {
   wireDecisionButtons(box);
 }
 
+const clockIn = (s) => new Date(Date.now() + s * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const dur = (s) => (s == null ? "–" : s >= 3600 ? `${Math.floor(s / 3600)}${NB}h ${Math.round((s % 3600) / 60)}${NB}min` : s >= 60 ? `${Math.round(s / 60)}${NB}min` : `${s}${NB}s`);
+
 function incidentAge(i) {
-  if (i.status === "recovered") return `fixed in ${Math.max(1, Math.round(i.ttr_s / 60))}${NB}min`;
-  return `${i.status === "monitoring" ? "watching · " : ""}${Math.max(0, Math.round(i.age_s / 60))}${NB}min`;
+  if (i.status === "recovered") return `fixed in ${dur(i.ttr_s)}`;
+  const eta = i.eta?.in_s != null ? ` · fix ~${clockIn(i.eta.in_s)} (${esc(i.eta.basis)})` : i.eta ? ` · ${esc(i.eta.basis)}` : "";
+  return `${i.status === "monitoring" ? "watching · " : ""}${dur(i.age_s)} open${eta}`;
+}
+
+function metricsLine(i) {
+  const m = i.metrics || {};
+  return `<li class="metrics-line"><b>Times</b><span>detect ${dur(m.ttd_s)} · acknowledge ${dur(m.tta_s)} · mitigate ${dur(m.ttm_s)} · resolve ${dur(m.ttr_s)}${m.field_visit ? " · with a field visit" : ""}</span></li>`;
 }
 
 function renderFeed() {
@@ -219,7 +228,7 @@ function renderFeed() {
     // One line per incident: what, the chain of steps, how long. Click a line for the full timeline.
     list.innerHTML = incidents.slice(0, 12).map((i) => {
       const chain = i.timeline.map((t) => `<span class="step ${t.type}">${esc(t.short ?? t.type)}</span>`).join('<span class="arrow">→</span>');
-      const steps = expanded === i.id ? `<ol class="steps">${i.timeline.map((t) => `<li class="${t.type}" title="${esc(t.text)}">
+      const steps = expanded === i.id ? `<ol class="steps">${metricsLine(i)}${i.timeline.map((t) => `<li class="${t.type}" title="${esc(t.text)}">
           <time>${fmtTime(t.time)}</time><b>${STEP[t.type] ?? t.type}</b><span>${esc(t.text)}</span><em>${ACTOR[t.actor] ?? ""}</em></li>`).join("")}</ol>` : "";
       return `<li class="inc-row ${i.severity} ${i.status} ${expanded === i.id ? "open" : ""}" data-inc="${esc(i.id)}">
         <div class="line"><i class="sev"></i><time class="opened">${new Date(i.opened).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><b class="title">${esc(i.title)}</b><span class="chain">${chain}</span><small>${incidentAge(i)}</small></div>${steps}</li>`;

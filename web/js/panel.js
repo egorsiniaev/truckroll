@@ -366,19 +366,28 @@ export function renderKpi(root, id, snapshot) {
 }
 
 
-const SLO_FMT = { ratio: (v) => `${(v * 100).toFixed(v >= 0.995 && v < 1 ? 2 : 1)}%`, count: (v) => `${v}` };
-const SLO_TARGET = { ratio: (v, hb) => `${hb ? "≥" : "≤"} ${(v * 100).toFixed(0)}%`, count: (v) => `${v}` };
+const secs = (v) => (v >= 3600 ? `${(v / 3600).toFixed(1)}${NB}h` : v >= 60 ? `${Math.round(v / 60)}${NB}min` : `${v}${NB}s`);
+const SLO_FMT = { ratio: (v) => `${(v * 100).toFixed(v >= 0.995 && v < 1 ? 2 : 1)}%`, count: (v) => `${v}`, seconds: secs };
+const SLO_TARGET = { ratio: (v, hb) => `${hb ? "≥" : "≤"} ${(v * 100).toFixed(0)}%`, count: (v) => `${v}`, seconds: (v) => `≤ ${secs(v)}` };
+const RESPONSE_IDS = new Set(["ttd", "ttm", "ttr_remote", "ttr_field", "answered"]);
+
+function sloRows(rows) {
+  return `<table class="slo">${rows.map((r) => `<tr class="${r.status.replace(" ", "-")}">
+      <td><b>${esc(r.name)}</b><br><span class="muted">${esc(r.detail)}</span></td>
+      <td class="v">${r.value == null ? "–" : SLO_FMT[r.unit](r.value)}</td>
+      <td class="t">target ${SLO_TARGET[r.unit](r.target, !["cap"].includes(r.id))}</td>
+      <td><span class="slo-pill">${esc(r.status)}</span></td></tr>`).join("")}</table>`;
+}
 
 export function renderSlo(root, snapshot) {
   const rows = snapshot.slo || [];
   root.innerHTML = `
     <h3>Service levels today</h3>
     <p class="meta">Since ${esc(snapshot.kpis?.uptime_since || "midnight")}. The targets are from GOALS.md.</p>
-    <table class="slo">${rows.map((r) => `<tr class="${r.status.replace(" ", "-")}">
-      <td><b>${esc(r.name)}</b><br><span class="muted">${esc(r.detail)}</span></td>
-      <td class="v">${r.value == null ? "–" : SLO_FMT[r.unit](r.value)}</td>
-      <td class="t">target ${SLO_TARGET[r.unit](r.target, r.id !== "cap")}</td>
-      <td><span class="slo-pill">${esc(r.status)}</span></td></tr>`).join("")}</table>
+    ${sloRows(rows.filter((r) => !RESPONSE_IDS.has(r.id)))}
+    <h4>Incident response</h4>
+    ${sloRows(rows.filter((r) => RESPONSE_IDS.has(r.id)))}
+    ${(snapshot.field_jobs || []).length ? `<h4>Technicians out</h4><ul class="rules">${snapshot.field_jobs.map((j) => `<li>🚐 ${esc(j.station)}: ${j.status === "driving" ? "on the way" : "on site"}, done in ${secs(j.in_s)}</li>`).join("")}</ul>` : ""}
     <h4>AI agent eval</h4>
     <div id="eval-box">${evalHtml(lastEval)}</div>
     <p class="hint">Click a&nbsp;site, a&nbsp;charger, a&nbsp;metric or&nbsp;an&nbsp;incident for details. Click empty map to&nbsp;come back here.</p>`;

@@ -81,6 +81,38 @@ class SloTracker:
                 f"time under the grid operator's limit during {sum(s.flex_requests for s in self.per_site.values())} request(s)"),
         ]
 
+    def response_summary(self, incidents: list[dict], decisions) -> list[dict]:
+        """Incident response times today (medians) against targets. Field visits are time-compressed in the sim."""
+        today = [i for i in incidents if i["opened"][:10] >= self.day[:10]] if self.day else incidents
+
+        def med(values):
+            values = sorted(v for v in values if v is not None)
+            return values[len(values) // 2] if values else None
+
+        def row(id_, name, value, target, detail):
+            status = "no data" if value is None else ("met" if value <= target else "missed")
+            return {"id": id_, "name": name, "value": value, "target": target, "unit": "seconds", "status": status,
+                    "detail": detail}
+
+        m = [i["metrics"] for i in today]
+        remote = [x["ttr_s"] for x in m if not x["field_visit"]]
+        field_ = [x["ttr_s"] for x in m if x["field_visit"]]
+        answered = [d for d in decisions if d.decided_by in ("operator", "timeout")]
+        by_person = sum(1 for d in answered if d.decided_by == "operator")
+        share = by_person / len(answered) if answered else None
+        return [
+            row("ttd", "Time to detect (median)", med(x["ttd_s"] for x in m), 120,
+                f"problem start to alert, {sum(x['ttd_s'] is not None for x in m)} incidents"),
+            row("ttm", "Time to mitigate (median)", med(x["ttm_s"] for x in m), 600,
+                "alert to the first response that restores service or contains the impact"),
+            row("ttr_remote", "Time to resolve, remote (median)", med(remote), 900, f"{len([v for v in remote if v])} resolved without a visit"),
+            row("ttr_field", "Time to resolve, field visit (median)", med(field_), 3600,
+                f"{len([v for v in field_ if v])} resolved with a technician (visits time-compressed)"),
+            {"id": "answered", "name": "Decisions answered by a person", "value": share, "target": 0.5, "unit": "ratio",
+             "status": "no data" if share is None else ("met" if share >= 0.5 else "missed"),
+             "detail": f"{by_person} of {len(answered)} answered in time; the rest went to the default"},
+        ]
+
     def to_state(self) -> dict:
         return {"day": self.day, "sites": {c: s.__dict__ for c, s in self.per_site.items()}}
 

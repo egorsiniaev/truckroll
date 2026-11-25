@@ -224,7 +224,7 @@ async def test_uptime_money_and_battery_survive_a_restart(tmp_path):
 async def test_slo_summary_and_decision_api(ctx):
     client, clients, hub = ctx
     ids = {s["id"] for s in hub.snapshot["slo"]}
-    assert ids == {"uptime", "uptime_excl", "starts", "cap", "flex"}
+    assert ids == {"uptime", "uptime_excl", "starts", "cap", "flex", "ttd", "ttm", "ttr_remote", "ttr_field", "answered"}
     assert (await client.post("/api/decisions/DEC-9999", json={"choice": "approve"})).status_code == 404
     inc = hub.incidents._new("x", "fault", "critical", "t", "A2-HUB", ["A2-HUB-00001"])
     await hub.incidents._ask(inc, "reset", {"station": "A2-HUB-00001"}, "Reset it?", "Because.")

@@ -13,13 +13,15 @@ import time
 from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from control.clients import UpstreamError
 from control.decisions import DecisionBook
 from control.persist import Clocks
 
 log = logging.getLogger(__name__)
+TZ = ZoneInfo("Europe/Amsterdam")
 
 SITE_OUTAGE_SHARE = 0.5  # this share of a site's stations offline = one site incident, not N station incidents
 SITE_RECOVERED_SHARE = 0.1
@@ -33,7 +35,14 @@ STUCK_STATES = {"Preparing", "Finishing"}  # transitional: a connector should pa
 STUCK_AFTER_S = 180
 STUCK_RESET_AFTER_S = 60  # after asking the charger to re-report its status
 KEEP_CLOSED = 25
-TIME_MEMOS = ("reset_at", "verify_from", "asked_at")  # memo entries that are monotonic timestamps
+TIME_MEMOS = ("reset_at", "verify_from", "asked_at", "calm_since", "resent_at", "last_jump")  # monotonic stamps
+# Responses that restore service or contain the impact, for time to mitigate.
+MITIGATING = {"soft reset", "free vend", "worker restart", "out of service", "out of service (scheduled)",
+              "chargers limited", "rollback", "limits applied", "re-sent limit", "billing hold", "fixed on site",
+              "unstuck", "resets paused"}
+TYPICAL_FIX_S = {"site_outage": 180, "station_offline": 600, "crash_loop": 400, "fault": 300, "stuck": 300,
+                 "auth_slow": 480, "backlog": 180, "grid_cap": 1200, "flex_request": 200, "meter_drift": 1800,
+                 "meter_jump": 1800, "ignores_limit": 600}
 
 
 def _iso() -> str:
@@ -60,16 +69,35 @@ class Incident:
     recovered: str | None = None
     ttr_s: float | None = None
     memo: dict = field(default_factory=dict)
+    symptom_at: float | None = None  # when the problem started, as far as the data shows
 
     def add(self, kind: str, text: str, actor: str = "system", short: str | None = None) -> None:
         """short: two or three words for the one-line incident summary."""
         self.timeline.append({"time": _iso(), "type": kind, "actor": actor, "text": text, "short": short or kind})
 
+    def metrics(self) -> dict:
+        """Time to detect / acknowledge / mitigate / resolve, in seconds from the problem's start or the alert."""
+        opened = datetime.fromisoformat(self.opened.replace("Z", "+00:00"))
+
+        def after(pred) -> float | None:
+            for t in self.timeline:
+                if pred(t):
+                    return round((datetime.fromisoformat(t["time"].replace("Z", "+00:00")) - opened).total_seconds())
+            return None
+
+        return {
+            "ttd_s": round(self.opened_at - self.symptom_at) if self.symptom_at is not None else None,
+            "tta_s": after(lambda t: t["actor"] == "operator"),
+            "ttm_s": after(lambda t: t["type"] == "response" and t["short"] in MITIGATING),
+            "ttr_s": self.ttr_s,
+            "field_visit": bool(self.memo.get("truck_roll") or self.memo.get("calibration")),
+        }
+
     def to_json(self, now: float) -> dict:
         return {"id": self.id, "kind": self.kind, "severity": self.severity, "title": self.title, "site": self.site,
                 "stations": self.stations, "opened": self.opened, "status": self.status,
                 "recovered": self.recovered, "ttr_s": self.ttr_s, "age_s": round(now - self.opened_at),
-                "timeline": self.timeline}
+                "timeline": self.timeline, "metrics": self.metrics(), "eta": self.memo.get("eta")}
 
 
 class IncidentManager:
@@ -83,6 +111,7 @@ class IncidentManager:
         self.meters: dict = {}  # per connector: energy vs power cross-check (incident_rules.meter_drift)
         self.over_limit_since: dict[str, float] = {}  # station -> when it went above its limit
         self.meter_diag: dict[str, str] = {}  # station -> evidence for a drift incident
+        self.field = None  # FieldService, set by the hub
         self.open: dict[str, Incident] = {}  # key -> incident
         self.closed: deque[Incident] = deque(maxlen=KEEP_CLOSED)
         self._seq = itertools.count(1)
@@ -117,13 +146,33 @@ class IncidentManager:
         self._prev_state = dict(data.get("prev_state", {}))
         self._seq = itertools.count(data.get("seq", 1))
 
+    def _estimate(self, inc: Incident, now: float) -> dict:
+        """When will this be fixed, and why we think so."""
+        job = self.field.active_for(inc.id) if self.field is not None else None
+        if job is not None:
+            basis = "technician on the way" if job.status == "driving" else "technician on site"
+            return {"in_s": max(0, round(job.done_at - now)), "basis": basis}
+        if any(d.incident_id == inc.id for d in self.book.pending.values()):
+            return {"in_s": None, "basis": "waiting for your decision"}
+        if inc.memo.get("verify_from") is not None:
+            return {"in_s": max(0, round(inc.memo["verify_from"] + VERIFY_AFTER_FIX_S - now)), "basis": "watching after a fix"}
+        done = [i.ttr_s for i in self.closed if i.kind == inc.kind and i.ttr_s]
+        typical = sorted(done)[len(done) // 2] if len(done) >= 3 else TYPICAL_FIX_S.get(inc.kind, 600)
+        basis = "median for this kind today" if len(done) >= 3 else "typical for this kind"
+        return {"in_s": max(60, round(inc.opened_at + typical - now)), "basis": basis}
+
     def snapshot(self) -> list[dict]:
         now = self.clock()
+        for inc in self.open.values():
+            inc.memo["eta"] = self._estimate(inc, now)
         live = sorted(self.open.values(), key=lambda i: i.opened_at, reverse=True)
         return [i.to_json(now) for i in live] + [i.to_json(now) for i in self.closed]
 
-    def _new(self, key: str, kind: str, severity: str, title: str, site: str, stations: list[str]) -> Incident:
-        inc = Incident(f"INC-{next(self._seq):04d}", kind, severity, title, site, stations, _iso(), self.clock())
+    def _new(self, key: str, kind: str, severity: str, title: str, site: str, stations: list[str],
+             symptom_age_s: float | None = None) -> Incident:
+        now = self.clock()
+        inc = Incident(f"INC-{next(self._seq):04d}", kind, severity, title, site, stations, _iso(), now)
+        inc.symptom_at = now - symptom_age_s if symptom_age_s is not None else now
         self.open[key] = inc
         return inc
 
@@ -194,6 +243,11 @@ class IncidentManager:
                 short = f"{short} (scheduled)"
             elif answer not in (None, "Accepted"):
                 text = text[:-1] + f"; the charger answered {answer}."
+            if action in ("truck_roll", "calibration") and self.field is not None and sid:
+                key = next((k for k, v in self.open.items() if v is inc), None)
+                job = self.field.dispatch(inc.id, key, action, sid, inc.site)
+                eta = datetime.now(UTC) + timedelta(seconds=job.arrive_at - self.clock())
+                text = text[:-1] + f"; technician arrives about {eta.astimezone(TZ).strftime('%H:%M')}."
             inc.add("response", text[:-1] + note + ".", actor, short=short)
             inc.memo[action] = True
             if action == "truck_roll":
@@ -328,7 +382,8 @@ class IncidentManager:
             since = self._offline_since.get(sid)
             covered = st["site"] in outage_sites or self._looping(sid)
             if since is not None and not covered and now - since >= STATION_OFFLINE_AFTER_S and key not in self.open:
-                inc = self._new(key, "station_offline", "warning", f"{sid} is offline", st["site"], [sid])
+                inc = self._new(key, "station_offline", "warning", f"{sid} is offline", st["site"], [sid],
+                                symptom_age_s=now - since)
                 inc.add("detected", f"No contact for {STATION_OFFLINE_AFTER_S} s while the rest of {st['site']} is fine.", short="no contact")
                 inc.add("response", f"Waiting for it to reconnect. Truck roll if still offline after "
                                     f"{TRUCK_ROLL_OFFLINE_S // 60} min.", "auto-rule", short="waiting")
@@ -352,7 +407,8 @@ class IncidentManager:
                 count = sum(c["status"] == "Faulted" for c in st["connectors"])
                 real = [c for c in codes if c != "NoError"]
                 label = ", ".join(real) if real else "a fault (no error code given)"
-                inc = self._new(key, "fault", "critical", f"{sid} reports {label}", st["site"], [sid])
+                age = max((c.get("status_age_s") or 0) for c in st["connectors"] if c["status"] == "Faulted")
+                inc = self._new(key, "fault", "critical", f"{sid} reports {label}", st["site"], [sid], symptom_age_s=age)
                 inc.add("detected", f"{count} connector(s) faulted with {', '.join(codes)}.", short="fault")
                 inc.add("response", f"Remote soft reset in {FAULT_RESET_AFTER_S} s if it doesn't clear by itself.",
                         "auto-rule", short="reset planned")
@@ -402,7 +458,8 @@ class IncidentManager:
             if stuck and key not in self.open and f"fault:{sid}" not in self.open and not self._looping(sid):
                 c = stuck[0]
                 flowing = (c.get("power_w") or 0) > 100
-                inc = self._new(key, "stuck", "warning", f"{sid} stuck in {c['status']}", st["site"], [sid])
+                inc = self._new(key, "stuck", "warning", f"{sid} stuck in {c['status']}", st["site"], [sid],
+                                symptom_age_s=c.get("status_age_s"))
                 inc.memo["connector"] = c["id"]
                 detail = (" while energy is flowing: the charger's status and its meter disagree"
                           if flowing else ": no session is starting, the connector is blocked")

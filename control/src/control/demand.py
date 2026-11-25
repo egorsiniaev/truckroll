@@ -22,7 +22,8 @@ log = logging.getLogger(__name__)
 
 START_TIMEOUT_S = 40
 RECENT_S = 180
-MAX_STARTS_PER_TICK = 4  # each start is a simulator round trip; keep one tick short
+MAX_STARTS_PER_TICK = 4
+MAX_STOP_ATTEMPTS = 3  # each start is a simulator round trip; keep one tick short
 # A transaction can sit in any of these; a charger reporting the wrong one must not strand the session.
 ADOPTABLE = {"Charging", "SuspendedEV", "SuspendedEVSE", "Preparing", "Finishing"}
 MIN_POWER_FOR_ETA_W = 200
@@ -66,6 +67,7 @@ class Session:
     requested: float
     start_wh: float | None = None
     tx: int | None = None
+    stop_failures: int = 0
 
 
 @dataclass
@@ -238,8 +240,14 @@ class DemandEngine:
                 try:
                     await self.clients.simulator.stop_transaction(sess.station, sess.tx)
                 except UpstreamError as exc:
-                    log.info("stop %s failed: %s", sess.station, exc)
-                    continue
+                    sess.stop_failures += 1
+                    gone = "No active transaction" in str(exc)
+                    if not gone and sess.stop_failures < MAX_STOP_ATTEMPTS:
+                        log.info("stop %s failed: %s", sess.station, exc)
+                        continue
+                    # The session already ended on the charger, or keeps refusing: the car has left.
+                    log.info("stop %s gave up after %d tries (%s)", sess.station, sess.stop_failures,
+                             "no active transaction" if gone else "refused")
                 del st.sessions[key]
                 st.completed += 1
         return texts

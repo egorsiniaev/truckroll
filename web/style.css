@@ -426,3 +426,6 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 .inc-row .chain { flex: 1 1 240px; overflow: visible; text-overflow: clip; white-space: normal; }
 .inc-row .chain .step { white-space: nowrap; }
 .inc-row .sev { align-self: center; }
+.inc-row .steps li.metrics-line b { color: #0f766e; }
+.inc-row .steps li.metrics-line span { color: #0f766e; white-space: normal; }
+.inc-row .steps li { white-space: normal; }

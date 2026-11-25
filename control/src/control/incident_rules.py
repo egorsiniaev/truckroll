@@ -205,7 +205,8 @@ async def ignores_limit(m, snapshot: Mapping, now: float) -> None:
             m.over_limit_since.pop(sid, None)
         since = m.over_limit_since.get(sid)
         if over and since is not None and now - since >= OVER_LIMIT_S and key not in m.open:
-            inc = m._new(key, "ignores_limit", "critical", f"{sid} ignores its power limit", st["site"], [sid])
+            inc = m._new(key, "ignores_limit", "critical", f"{sid} ignores its power limit", st["site"], [sid],
+                         symptom_age_s=now - since)
             inc.add("detected", f"It draws {st['power_w'] / 1000:.0f} kW against a {limit / 1000:.0f} kW limit "
                                 f"for {OVER_LIMIT_S} s: the limit was accepted but not applied.", short="over limit")
             if m.limits is not None:

@@ -78,10 +78,11 @@ class Ledger:
     revenue_eur: float = 0.0
     cost_eur: float = 0.0
     lost_eur: float = 0.0
+    service_eur: float = 0.0  # technician visits
 
     @property
     def margin_eur(self) -> float:
-        return self.revenue_eur - self.cost_eur
+        return self.revenue_eur - self.cost_eur - self.service_eur
 
     def to_json(self) -> dict:
         return {k: round(v, 2) for k, v in {**self.__dict__, "margin_eur": self.margin_eur}.items()}
@@ -133,6 +134,10 @@ class Economics:
             led.revenue_eur += rev_h * hours
             led.cost_eur += cost_h * hours
 
+    def service(self, code: str, eur: float) -> None:
+        if code in self.today:
+            self.today[code].service_eur += eur
+
     def lost(self, code: str, kwh: float, prices: Mapping | None) -> None:
         if code in self.today:
             self.today[code].lost_eur += kwh * self.tariffs(prices)[code]
@@ -140,7 +145,7 @@ class Economics:
     def summary(self) -> dict:
         total = Ledger()
         for led in self.today.values():
-            for k in ("energy_kwh", "solar_kwh", "grid_kwh", "revenue_eur", "cost_eur", "lost_eur"):
+            for k in ("energy_kwh", "solar_kwh", "grid_kwh", "revenue_eur", "cost_eur", "lost_eur", "service_eur"):
                 setattr(total, k, getattr(total, k) + getattr(led, k))
         return {"dynamic": self.dynamic, "day": self.day, "fleet": total.to_json(),
                 "sites": {c: {**led.to_json(), **self.rates.get(c, {})} for c, led in self.today.items()}}

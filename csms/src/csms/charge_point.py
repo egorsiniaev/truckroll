@@ -140,6 +140,13 @@ class StationConnection(ChargePoint):
     @on(Action.meter_values)
     async def on_meter_values(self, connector_id, meter_value, **kwargs):
         tx = kwargs.get("transaction_id")
+        current = self._fleet.get(self.id).connectors.get(connector_id) if self._fleet.get(self.id) else None
+        if tx and current and current.transaction_id and int(tx) != current.transaction_id:
+            # A late reading from a session that already ended: it must not overwrite the current session's meter.
+            self._telemetry.message("MeterValuesStale", self.site)
+            log.info("station=%s connector=%s ignored meter values for ended tx=%s (current tx=%s)",
+                     self.id, connector_id, tx, current.transaction_id)
+            return call_result.MeterValues()
         if tx and connector_id and self._fleet.adopt_transaction(self.id, connector_id, int(tx), self._clock()):
             log.warning("station=%s site=%s connector=%s adopted tx=%s started before a CSMS restart",
                         self.id, self.site, connector_id, tx)
