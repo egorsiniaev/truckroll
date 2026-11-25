@@ -22,6 +22,9 @@
 			flush_interval -1
 		}
 	}
+	# Page files change with every deploy: browsers must check (cheap, ETag) instead of mixing old and new modules.
+	@page path / /*.html /js/* /*.css /*.svg
+	header @page Cache-Control "no-cache"
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff

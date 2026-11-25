@@ -21,6 +21,13 @@
     <section class="detail" id="detail"><p class="hint">Pick an&nbsp;incident.</p></section>
   </main>
   <div id="toast" class="toast" hidden></div>
+  <script>
+    // If the page script can't load (e.g. a stale cached file), say so instead of "connecting…" forever.
+    addEventListener("error", (e) => {
+      const live = document.getElementById("live");
+      if (live && /module|import|export|Syntax/i.test(String(e.message))) { live.className = "live err"; live.textContent = "page out of date: reload"; }
+    });
+  </script>
   <script type="module" src="js/reports.js"></script>
 </body>
 </html>
