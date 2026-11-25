@@ -29,7 +29,15 @@
   </header>
 
   <main class="stage">
+    <div class="map-wrap">
     <svg id="scene" viewBox="-790 -510 1580 980" role="img" aria-label="Isometric map of four charging sites"></svg>
+    <div id="callouts" class="callouts"></div>
+    <div class="zoom">
+      <button id="zoom-in" aria-label="Zoom in">+</button>
+      <button id="zoom-out" aria-label="Zoom out">−</button>
+      <button id="zoom-home" aria-label="Reset view">⤢</button>
+    </div>
+    </div>
 
     <section class="feed" id="feed-box" aria-live="polite">
       <button class="feed-head" id="feed-toggle" aria-expanded="true">
@@ -44,13 +52,7 @@
       <div id="scenario" class="scenario"></div>
     </section>
 
-    <div id="callouts" class="callouts"></div>
 
-    <div class="zoom">
-      <button id="zoom-in" aria-label="Zoom in">+</button>
-      <button id="zoom-out" aria-label="Zoom out">−</button>
-      <button id="zoom-home" aria-label="Reset view">⤢</button>
-    </div>
 
     <section class="legend">
       <span title="Free: no car, ready to charge"><i class="dot available"></i>Available</span>

@@ -519,7 +519,13 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 /* Phones: the map fitted to the width, incidents as a bottom sheet with a one-line legend on top. */
 @media (max-width: 700px) {
   #scene { height: auto; }
-  .zoom { display: none; }  /* the map is fitted to the width; the buttons would cover labels */
+  /* Zoom buttons in a row in the map's empty bottom-right corner; pinch works too. */
+  .zoom { flex-direction: row; top: auto; bottom: 6px; right: 6px; gap: 4px; }
+  .zoom button { width: 30px; height: 30px; font-size: 16px; border-radius: 8px; opacity: .9; }
+  #scene { touch-action: pan-y; }
+  /* Details and control panel: half a screen, scrolls inside, so a tap on the map shows its effect right away. */
+  .panel { max-height: 50svh; }
+  .panel .tab-body { overflow-y: auto; min-height: 0; flex: 1 1 auto; }
   .feed { position: fixed; left: 0; right: 0; top: auto; bottom: 0; width: auto; z-index: 5; margin: 0; max-height: 72vh;
           border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px #0f172a33; background: #fff; padding-bottom: env(safe-area-inset-bottom); }
   .feed-body { max-height: none; flex: 1 1 auto; min-height: 0; }
@@ -528,9 +534,12 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
   .feed.collapsed .feed-body { display: block; padding-bottom: 0; }
   .feed.collapsed #incidents, .feed.collapsed #log-toggle, .feed.collapsed #log { display: none; }
   .feed.collapsed .questions:empty { display: none; }
-  .feed .legend { position: static; order: 0; margin: 0; padding: 8px 14px 0; box-shadow: none; background: none;
-                  gap: 4px 10px; font-size: 10.5px; flex-wrap: wrap; justify-content: center; }
-  .feed .legend .sep { display: none; }
+  .legend { margin: 6px 8px; padding: 6px 10px; gap: 4px 10px; font-size: 10.5px; justify-content: center; }
+  .legend .sep { display: none; }
   .scenario { padding: 6px 14px 8px; }
   .panel { margin: 0 8px 12px; }
 }
+
+/* The map and its overlays (zoom buttons, callouts) share one box, so they line up on every screen size. */
+.map-wrap { position: relative; height: 100%; min-height: 0; }
+@media (max-width: 1100px) { .map-wrap { height: auto; order: 1; } }

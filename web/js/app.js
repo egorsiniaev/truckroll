@@ -69,8 +69,31 @@ applyView();
 const unitsPerPx = () => Math.max(vb.w / svg.clientWidth, vb.h / svg.clientHeight);
 let drag = null;
 let suppressClick = false;
-svg.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, vb: { ...vb }, moved: false }; });
+// Pinch: two fingers on the map zoom around their midpoint.
+const touches = new Map();
+let pinch = null;
+const svgPoint = (x, y) => new DOMPoint(x, y).matrixTransform(svg.getScreenCTM().inverse());
+svg.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "touch") touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 2) {
+    const [a, b] = [...touches.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), vb: { ...vb }, mid: svgPoint((a.x + b.x) / 2, (a.y + b.y) / 2) };
+    drag = null;
+    suppressClick = true;
+    return;
+  }
+  drag = { x: e.clientX, y: e.clientY, vb: { ...vb }, moved: false };
+});
 window.addEventListener("pointermove", (e) => {
+  if (pinch && touches.has(e.pointerId)) {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const [a, b] = [...touches.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d < 10) return;
+    vb = { ...pinch.vb };
+    zoom(pinch.d / d, pinch.mid.x, pinch.mid.y);
+    return;
+  }
   if (!drag) return;
   const dx = e.clientX - drag.x;
   const dy = e.clientY - drag.y;
@@ -84,8 +107,10 @@ window.addEventListener("pointermove", (e) => {
 NARROW.addEventListener("change", () => { vb = homeView(); applyView(); });
 PHONE.addEventListener("change", () => { placeLegend(); vb = homeView(); applyView(); });
 // A vertical swipe on a phone scrolls the page: the browser cancels the pointer, so drop the drag.
-window.addEventListener("pointercancel", () => { drag = null; svg.classList.remove("dragging"); });
-window.addEventListener("pointerup", () => {
+const endTouch = (e) => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
+window.addEventListener("pointercancel", (e) => { endTouch(e); drag = null; svg.classList.remove("dragging"); });
+window.addEventListener("pointerup", (e) => {
+  endTouch(e);
   if (drag?.moved) suppressClick = true;
   drag = null;
   svg.classList.remove("dragging");
@@ -125,11 +150,7 @@ document.getElementById("zoom-home").onclick = () => { vb = homeView(); applyVie
 const feedKey = () => (PHONE.matches ? "feedCollapsedPhone" : "feedCollapsed");
 const feedDefault = () => (PHONE.matches ? "1" : "0");
 feedBox.classList.toggle("collapsed", (localStorage.getItem(feedKey()) ?? feedDefault()) === "1");
-// On phones the legend rides on top of the sheet; elsewhere it floats over the map.
-const legend = document.querySelector(".legend");
-const legendHome = legend.parentElement;
 function placeLegend() {
-  if (PHONE.matches) feedBox.prepend(legend); else legendHome.append(legend);
   feedBox.classList.toggle("collapsed", (localStorage.getItem(feedKey()) ?? feedDefault()) === "1");
 }
 placeLegend();
