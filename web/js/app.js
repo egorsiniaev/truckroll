@@ -45,8 +45,10 @@ function switchTab(tab) {
 document.querySelectorAll(".tabs button").forEach((b) => { b.onclick = () => { switchTab(b.dataset.tab); render(); }; });
 
 // Pan and zoom: drag the map, wheel or buttons to zoom. A drag never counts as a click.
-const HOME = { x: -800, y: -700, w: 1600, h: 1180 }; // room at the top for the incidents strip
-let vb = { ...HOME };
+// Wide screens leave room at the top for the incidents strip; narrow ones show incidents below the map.
+const NARROW = matchMedia("(max-width: 1100px)");
+const homeView = () => (NARROW.matches ? { x: -800, y: -520, w: 1600, h: 1000 } : { x: -800, y: -700, w: 1600, h: 1180 });
+let vb = homeView();
 const applyView = () => { svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); renderCallouts(); };
 applyView();
 const unitsPerPx = () => Math.max(vb.w / svg.clientWidth, vb.h / svg.clientHeight);
@@ -64,6 +66,9 @@ window.addEventListener("pointermove", (e) => {
   vb = { ...vb, x: drag.vb.x - dx * k, y: drag.vb.y - dy * k };
   applyView();
 });
+NARROW.addEventListener("change", () => { vb = homeView(); applyView(); });
+// A vertical swipe on a phone scrolls the page: the browser cancels the pointer, so drop the drag.
+window.addEventListener("pointercancel", () => { drag = null; svg.classList.remove("dragging"); });
 window.addEventListener("pointerup", () => {
   if (drag?.moved) suppressClick = true;
   drag = null;
@@ -98,7 +103,7 @@ svg.addEventListener("wheel", (e) => {
 }, { passive: false });
 document.getElementById("zoom-in").onclick = () => zoom(1 / 1.25);
 document.getElementById("zoom-out").onclick = () => zoom(1.25);
-document.getElementById("zoom-home").onclick = () => { vb = { ...HOME }; applyView(); };
+document.getElementById("zoom-home").onclick = () => { vb = homeView(); applyView(); };
 
 // Incidents panel: collapsed state survives reloads.
 if (localStorage.getItem("feedCollapsed") === "1") feedBox.classList.add("collapsed");
