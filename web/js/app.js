@@ -133,7 +133,7 @@ document.querySelectorAll(".kpi").forEach((k) => {
 });
 // Smooth zoom: wheel, buttons and reset set a goal and the view eases toward it; drag and pinch follow directly.
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)");
-const EASE_MS = 90;  // time constant: about 3x this to settle
+const EASE_MS = 50;  // time constant: about 3x this to settle
 let goal = null;
 let easing = 0;
 function stepView(t, last) {
