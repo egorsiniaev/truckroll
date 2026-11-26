@@ -11,7 +11,7 @@ let current = null;
 // Same step colours and actor names as the incidents list on the main page.
 const ACTOR = { system: "system", "auto-rule": "auto rule", operator: "operator", scenario: "scenario", agent: "AI agent", technician: "technician" };
 const time = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "–");
-const metric = (label, v) => `<span class="rp-metric"><span>${label}</span><b>${dur(v)}</b></span>`;
+const metric = (label, v, missing = "–") => `<span class="rp-metric"><span>${label}</span><b>${v == null ? missing : dur(v)}</b></span>`;
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString([], { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "–");
 const dur = (s) => (s == null ? "–" : s >= 3600 ? `${(s / 3600).toFixed(1)}${NB}h` : s >= 60 ? `${Math.round(s / 60)}${NB}min` : `${s}${NB}s`);
 
@@ -28,13 +28,30 @@ async function loadList() {
   renderList();
 }
 
+function dayLabel(iso) {
+  const d = new Date(iso), today = new Date();
+  const key = (x) => x.toDateString();
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  return key(d) === key(today) ? "Today" : key(d) === key(yesterday) ? "Yesterday"
+    : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+}
+
 function renderList() {
   const shown = only.checked ? rows.filter((r) => r.applicability.nis2.applies || r.applicability.cra.applies) : rows;
+  let day = "";
   list.innerHTML = shown.map((r) => {
-    const reg = r.applicability.nis2.applies ? '<span class="badge nis2">NIS2</span>' : r.applicability.cra.applies ? '<span class="badge nis2">CRA</span>' : '<span class="badge none">not reportable</span>';
+    const label = dayLabel(r.opened);
+    const head = label !== day ? `<li class="rp-day">${esc((day = label))}</li>` : "";
+    const regs = [r.applicability.nis2.applies && "NIS2", r.applicability.cra.applies && "CRA"].filter(Boolean)
+      .map((x) => `<span class="badge nis2">${x}</span>`).join("");
     const rep = r.has_report ? (r.approved.postmortem ? '<span class="badge ok">approved</span>' : '<span class="badge draft">draft</span>') : "";
-    return `<li data-id="${esc(r.id)}" class="${current === r.id ? "active" : ""}"><b>${esc(r.title)}</b>${reg}${rep}
-      <span class="muted">${esc(r.id)} · ${fmt(r.opened)} · ${r.status === "recovered" ? `resolved in ${dur(r.ttr_s)}` : r.status}</span></li>`;
+    const state = r.status === "recovered" ? `<span class="rp-ok">resolved in ${dur(r.ttr_s)}</span>`
+      : `<span class="rp-open">${esc(r.status)}</span>`;
+    const at = new Date(r.opened).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return `${head}<li data-id="${esc(r.id)}" class="rp-row ${esc(r.status)} ${current === r.id ? "active" : ""}">
+      <i class="sev"></i><b class="rp-title">${esc(r.title)}</b><time>${at}</time>
+      <span class="rp-meta">${regs}${rep}<span>${esc(r.id)}</span><span class="rp-tag">${esc(r.site)}</span>
+        <span class="rp-tag">${esc(r.kind.replaceAll("_", " "))}</span>${state}</span></li>`;
   }).join("") || `<li class="muted">Nothing here.</li>`;
   list.querySelectorAll("[data-id]").forEach((li) => { li.onclick = () => open(li.dataset.id); });
 }
@@ -63,7 +80,7 @@ async function open(id) {
     <h3>${esc(i.title)}</h3>
     <p class="meta">${esc(i.id)} · ${esc(i.site)} · opened ${fmt(i.opened)}
       <span class="rp-pill ${i.status === "recovered" ? "ok" : i.status === "monitoring" ? "warn" : "bad"}">${i.status === "recovered" ? `resolved ${fmt(i.recovered)}` : esc(i.status)}</span></p>
-    <div class="rp-metrics">${metric("detect", m.ttd_s)}${metric("acknowledge", m.tta_s)}${metric("mitigate", m.ttm_s)}${metric("resolve", m.ttr_s)}${m.field_visit ? '<span class="rp-metric"><span>field visit</span><b>yes</b></span>' : ""}</div>
+    <div class="rp-metrics">${metric("detect", m.ttd_s)}${metric("acknowledge", m.tta_s, "nobody (defaults)")}${metric("mitigate", m.ttm_s)}${metric("resolve", m.ttr_s, i.status === "recovered" ? "–" : "still open")}${m.field_visit ? '<span class="rp-metric"><span>field visit</span><b>yes</b></span>' : ""}</div>
     ${regime("NIS2 (Cyberbeveiligingswet)", a.nis2)}${regime("CRA", a.cra)}
     <div class="control"><button class="mini ${d ? "" : "primary"}" id="draft">${d ? "Redraft with AI" : "Draft with AI"}</button>
       <span class="muted">One Gemini call. You review and&nbsp;approve every part.</span></div>

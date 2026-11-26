@@ -578,3 +578,12 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 /* The map and its overlays (zoom buttons, callouts) share one box, so they line up on every screen size. */
 .map-wrap { position: relative; height: 100%; min-height: 0; }
 @media (max-width: 1100px) { .map-wrap { height: auto; order: 1; } }
+
+/* Dropdowns next to the small buttons: same height, text size and corners, with our own arrow. */
+.control select, .tab-body select {
+  appearance: none; -webkit-appearance: none; font: inherit; font-size: 11px; line-height: 1.3;
+  padding: 4px 24px 4px 9px; border-radius: 7px; border: 1px solid var(--line); background-color: #fff; color: var(--ink);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center; max-width: 100%; cursor: pointer;
+}
+.control select:focus-visible, .tab-body select:focus-visible { outline: 2px solid #93c5fd; outline-offset: 1px; }

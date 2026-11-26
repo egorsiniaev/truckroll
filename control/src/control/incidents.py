@@ -35,6 +35,7 @@ STUCK_STATES = {"Preparing", "Finishing"}  # transitional: a connector should pa
 STUCK_AFTER_S = 180
 STUCK_RESET_AFTER_S = 60  # after asking the charger to re-report its status
 KEEP_CLOSED = 25
+AGENT_AUTO_APPROVE_PCT = 70  # agent suggestions at or above this confidence default to yes
 TIME_MEMOS = ("reset_at", "verify_from", "asked_at", "calm_since", "resent_at", "last_jump")  # monotonic stamps
 # Responses that restore service or contain the impact, for time to mitigate.
 MITIGATING = {"soft reset", "free vend", "worker restart", "out of service", "out of service (scheduled)",
@@ -293,7 +294,8 @@ class IncidentManager:
             inc.add("response", f"{short} failed: {exc}.", actor, short=f"{short} failed")
 
     async def agent_verdict(self, incident_id: str, verdict: dict, action: str | None) -> None:
-        """Write the agent's triage into the timeline; turn its suggestion into a question that defaults to no."""
+        """Write the agent's triage into the timeline; turn its suggestion into a question. A confident suggestion
+        defaults to yes, an unsure one to no."""
         inc = next((i for i in self.open.values() if i.id == incident_id), None)
         if inc is None:
             return
@@ -307,9 +309,13 @@ class IncidentManager:
             if action in ("reset", "truck_roll", "inoperative", "calibration") and not inc.stations:
                 return
             label = verdict["next_step"].replace("_", " ")
+            # Confident: go ahead unless someone says no. Unsure: only with a yes.
+            sure = conf >= AGENT_AUTO_APPROVE_PCT
             await self._ask(inc, action, params, f"Agent suggests: {label}. Do it?",
-                            f"From the agent's triage ({conf}% sure). Agent suggestions need a yes.", default="reject",
-                            timeout_s=90)
+                            f"From the agent's triage ({conf}% sure)."
+                            + (" It goes ahead unless you say no." if sure else " Below "
+                               f"{AGENT_AUTO_APPROVE_PCT}% sure, so it needs a yes."),
+                            default="approve" if sure else "reject", timeout_s=90)
 
     async def observe(self, snapshot: Mapping) -> None:
         from control import incident_rules

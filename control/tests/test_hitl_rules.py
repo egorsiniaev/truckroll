@@ -193,3 +193,13 @@ async def test_previous_sessions_reading_is_never_the_baseline_and_resets_are_no
         t[0] = step * 10
         await m.observe(snap(stations=[charging("S-1", energy=e, power=50_000)]))
     assert not [k for k in m.open if k.startswith("meter:")]
+
+
+async def test_confident_agent_suggestions_default_to_yes_unsure_ones_to_no():
+    m, t, book, _ = make()
+    for i, conf in enumerate((0.95, 0.5)):
+        inc = m._new(f"stuck:S-{i}", "stuck", "warning", "stuck", "S", [f"S-{i}"])
+        await m.agent_verdict(inc.id, {"category": "firmware", "summary": "s", "evidence": "e", "confidence": conf,
+                                       "all_clear": False, "next_step": "reset"}, "reset")
+    defaults = {d.incident_id: d.default for d in book.pending.values()}
+    assert list(defaults.values()) == ["approve", "reject"]

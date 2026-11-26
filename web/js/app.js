@@ -253,6 +253,7 @@ function wireDecisionButtons(root) {
 }
 
 function renderQuestions() {
+  if (userBusy(feedBox)) return;
   const pending = snapshot.decisions?.pending ?? [];
   const list = document.getElementById("questions");
   list.innerHTML = pending.length ? `<li class="q-head">Waiting for you</li>` + pending.map((d) =>
@@ -289,10 +290,13 @@ function incidentAge(i) {
 
 function metricsLine(i) {
   const m = i.metrics || {};
-  return `<li class="metrics-line"><b>Times</b><span>detect ${dur(m.ttd_s)} · acknowledge ${dur(m.tta_s)} · mitigate ${dur(m.ttm_s)} · resolve ${dur(m.ttr_s)}${m.field_visit ? " · with a field visit" : ""}</span></li>`;
+  const ack = m.tta_s == null ? "nobody (defaults)" : dur(m.tta_s);
+  const res = m.ttr_s == null ? (i.status === "recovered" ? "–" : "still open") : dur(m.ttr_s);
+  return `<li class="metrics-line"><b>Times</b><span>detect ${dur(m.ttd_s)} · acknowledge ${ack} · mitigate ${dur(m.ttm_s)} · resolve ${res}${m.field_visit ? " · with a field visit" : ""}</span></li>`;
 }
 
 function renderFeed() {
+  if (userBusy(feedBox)) return;
   const incidents = snapshot.incidents || [];
   const open = incidents.filter((i) => i.status === "open");
   const watching = incidents.filter((i) => i.status === "monitoring");
@@ -325,14 +329,32 @@ function renderFeed() {
   }
 }
 
-function controlsBusy() {
+// Redrawing would drop a text selection or close an open dropdown: wait until the user is done.
+function userBusy(el) {
   const a = document.activeElement;
-  return a && controls.contains(a) && (a.tagName === "SELECT" || a.tagName === "INPUT");
+  if (a && el.contains(a) && /^(SELECT|INPUT|TEXTAREA)$/.test(a.tagName)) return true;
+  const sel = getSelection();
+  return !!(sel && !sel.isCollapsed && sel.rangeCount && el.contains(sel.anchorNode));
+}
+const controlsBusy = () => userBusy(controls);
+// A redraw rebuilds dropdowns at their first option; put back what the user picked.
+function keepChoices(el, draw) {
+  const picked = [...el.querySelectorAll("select[id]")].map((s) => [s.id, s.value]);
+  draw();
+  for (const [id, value] of picked) {
+    const s = el.querySelector(`#${CSS.escape(id)}`);
+    if (s && [...s.options].some((o) => o.value === value)) s.value = value;
+  }
 }
 
 function renderPanel() {
   if (Date.now() < holdUntil) return;
-  if (activeTab === "controls") { if (!controlsBusy()) renderControls(controls, snapshot, meta); return; }
+  if (activeTab === "controls") { if (!controlsBusy()) keepChoices(controls, () => renderControls(controls, snapshot, meta)); return; }
+  if (userBusy(details)) return;
+  keepChoices(details, renderDetails);
+}
+
+function renderDetails() {
   if (!selected) { renderSlo(details, snapshot); return; }
   if (selected.type === "kpi") { renderKpi(details, selected.id, snapshot); return; }
   if (selected.type === "site") {

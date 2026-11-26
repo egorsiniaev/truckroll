@@ -44,3 +44,22 @@
 .rp-actor.technician { background: #e0f2fe; color: #075985; } .rp-actor.scenario { background: #fef3c7; color: #92400e; }
 .rp-timeline p { grid-column: 1 / -1; margin: 2px 0 0; color: #334155; text-wrap: pretty; line-height: 1.45; }
 .detail .control .muted { font-size: 12px; }
+
+/* Incident list: compact rows, status dot and colours like the main page's incidents. */
+.reports .list ol { margin-top: 6px; }
+.reports .list li.rp-day { cursor: default; padding: 10px 8px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+                           text-transform: uppercase; color: var(--muted); border: 0; }
+.reports .list li.rp-day:hover { background: none; }
+.reports .list li.rp-row { display: grid; grid-template-columns: 9px 1fr auto; gap: 2px 9px; align-items: baseline;
+                           padding: 7px 10px; margin: 1px 0; border-radius: 9px; }
+.rp-row .sev { width: 8px; height: 8px; border-radius: 50%; background: var(--preparing); align-self: center; }
+.rp-row.recovered .sev { background: var(--available); }
+.rp-row.monitoring .sev { animation: pulse 1.4s infinite; }
+.reports .list .rp-row .rp-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+                                   font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+.rp-row time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rp-meta { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 11px; color: var(--muted); }
+.rp-meta .badge { margin: 0; }
+.rp-tag { background: #f1f5f9; color: #475569; border-radius: 99px; padding: 0 7px; line-height: 17px; }
+.rp-ok { color: #15803d; font-weight: 600; } .rp-open { color: #b45309; font-weight: 600; }
+.reports .list li.rp-row.active { border-color: #93c5fd; background: #eff6ff; }
