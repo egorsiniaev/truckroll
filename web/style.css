@@ -602,3 +602,8 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
   .inc-row .line { grid-template-columns: 9px auto minmax(0, 1fr); }
   .inc-row .line small { grid-column: 3; justify-self: start; text-align: left; max-width: none; margin-top: 2px; }
 }
+
+/* KPI explanations split into labelled lines. */
+.kpi-facts { margin: 8px 0 14px; font-size: 12.5px; }
+.kpi-facts dt { font-weight: 600; color: var(--ink); }
+.kpi-facts dd { margin: 1px 0 9px; color: #374151; line-height: 1.45; text-wrap: pretty; }

@@ -324,16 +324,14 @@ const KPI_INFO = {
   },
   price: {
     title: "Power price",
-    what: "Where the number comes from: the ENTSO-E day-ahead market for the Netherlands, one price per 15 minutes, "
-      + "fixed the day before. What it costs us: that price plus about €0.11/kWh in network fees and taxes; solar "
-      + "and battery energy are free at the moment of use. What drivers pay: each site has a base tariff (depot "
-      + "€0.32 and office €0.39 on contracts, retail €0.49, highway €0.69). With dynamic pricing, public tariffs "
-      + "follow the market: 60 % of a spike above today's average is added (up to +60 %), and 80 % of a dip below "
-      + "it is given back as a discount (down to −40 %), plus 10 % off while solar covers half the site. How it "
-      + "changes demand: price-sensitive drivers (retail, highway) come less when it's dear and more when it's "
-      + "cheap, up to 1.8x; they also check the wait in an app and go elsewhere if it's long. What else reacts: "
-      + "in the day's top 20 % the depot fleet charges at half power and the batteries supply the sites; in the "
-      + "cheapest quarter the batteries fill up.",
+    // One line per question, so it can be scanned; the facts are the ones the pricing code uses.
+    what: [
+      ["Source", "ENTSO-E day-ahead market for the Netherlands: one price per 15 minutes, fixed the day before."],
+      ["Our cost", "That price plus about €0.11/kWh in network fees and taxes. Solar and battery energy cost nothing at the moment of use."],
+      ["Driver tariffs", "Each site has a base: depot €0.32 and office €0.39 on contracts, retail €0.49, highway €0.69. With dynamic pricing, public tariffs add 60 % of a spike above today’s average (up to +60 %), give back 80 % of a dip (down to −40 %), and take 10 % off while solar covers half the site."],
+      ["Demand", "Retail and highway drivers come less when it’s dear and more when it’s cheap, up to 1.8×. They also check the wait in an app and go elsewhere when it’s long."],
+      ["Fleet and batteries", "In the day’s top 20 % the depot fleet charges at half power and the batteries supply the sites. In the cheapest quarter the batteries fill up."],
+    ],
     rows: (s) => s.sites.map((x) => [x.code, `tariff €${(x.economics?.tariff_eur_kwh ?? 0).toFixed(2)}/kWh`,
       `cost €${(x.economics?.buy_eur_kwh ?? 0).toFixed(2)}/kWh`, x.battery ? `battery ${x.battery.mode}` : ""]),
     value: (s) => (s.prices?.available ? `€${s.prices.now_eur_mwh.toFixed(0)}/MWh now · today €${s.prices.min_eur_mwh.toFixed(0)} to €${s.prices.max_eur_mwh.toFixed(0)}, average €${s.prices.avg_eur_mwh.toFixed(0)}${s.prices.expensive ? " · expensive slot" : s.prices.rank <= 0.25 ? " · cheap slot" : ""}` : "no data"),
@@ -361,7 +359,7 @@ export function renderKpi(root, id, snapshot) {
     <h3>${esc(info.title)}</h3>
     <p class="kpi-value">${esc(info.value(snapshot))}</p>
     ${info.extra ? info.extra(snapshot) : ""}
-    <p>${esc(info.what)}</p>
+    ${Array.isArray(info.what) ? `<dl class="kpi-facts">${info.what.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : `<p>${esc(info.what)}</p>`}
     ${rows.length ? `<table>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table>` : `<p class="hint">Nothing right now.</p>`}`;
 }
 
