@@ -114,6 +114,18 @@
   svg .lab { font-size: 10.5px; fill: var(--ink-2); }
   svg .hv { fill: var(--hivis); }
 
+  /* Hand annotations (mirrors siniaev.dev/assets/notes.css). */
+  .annotated { position: relative; container-type: inline-size; }
+  .annotated .shot { position: relative; }
+  .annotated .ink { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .ink path { fill: none; stroke: var(--hivis); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .ink path.halo { stroke: var(--paper); stroke-width: 7; opacity: .85; }
+  .annotated .scrawl { position: absolute; left: var(--x); top: var(--y); max-width: var(--w, 30%); margin: 0; padding: .25em .5em .3em; background: var(--paper); color: var(--hivis);
+    font: italic 600 clamp(10px, 1.8cqw, 19px)/1.2 var(--serif); transform: rotate(-2deg); box-shadow: 0 1px 0 var(--rule); text-wrap: balance; }
+  @container (max-width: 560px) {
+    .annotated .scrawl { position: static; max-width: none; transform: none; box-shadow: none; padding: 8px 12px 10px; font-size: 14px; border-top: 1px solid var(--rule); }
+  }
+
   footer { border-top: 2px solid var(--ink); margin-top: 64px; padding-top: 14px; display: flex; justify-content: space-between;
            flex-wrap: wrap; gap: 10px; font: 12.5px/1.5 var(--mono); color: var(--muted); }
 
@@ -136,7 +148,7 @@
 <div class="page">
 
   <div class="strip">
-    <span>Truckroll / field notes</span>
+    <span>Truckroll / on-call notes</span>
     <span>Nov 2026 · <a href="https://truckroll.siniaev.dev">live: truckroll.siniaev.dev</a></span>
   </div>
 
@@ -186,7 +198,7 @@
       <p>Across the top: uptime, cars charging, cars waiting, power against caps, the price, the day’s margin and open incidents. Each one explains itself when clicked.</p>
     </div>
     <figure class="wide">
-      <div class="frame"><img src="img/app.webp" alt="The Truckroll live map: four isometric charging sites, an incident list at the top, service levels on the right" loading="lazy"></div>
+      <div class="frame annotated"><div class="shot"><img src="img/app.webp" alt="The Truckroll live map: four isometric charging sites, an incident list at the top, service levels on the right" loading="lazy"><svg class="ink" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path class="halo" d="M3.44,18.52 Q12.35,16.28 28.05,15.11 Q45.63,14.97 61.48,16.18 Q69.98,18.45 71.95,20.95 Q68.28,23.54 53.86,25.09 Q37.14,25.70 19.28,25.41 Q6.95,23.45 -0.43,21.01 Q2.93,18.39 12.64,16.18"/><path d="M3.44,18.52 Q12.35,16.28 28.05,15.11 Q45.63,14.97 61.48,16.18 Q69.98,18.45 71.95,20.95 Q68.28,23.54 53.86,25.09 Q37.14,25.70 19.28,25.41 Q6.95,23.45 -0.43,21.01 Q2.93,18.39 12.64,16.18"/><path class="halo" d="M40.00,36.00 Q33.00,30.50 28.50,26.80 M28.50,26.80 L29.76,29.69 M28.50,26.80 L30.70,26.75"/><path d="M40.00,36.00 Q33.00,30.50 28.50,26.80 M28.50,26.80 L29.76,29.69 M28.50,26.80 L30.70,26.75"/></svg></div><p class="scrawl" style="--x:36%;--y:35.5%;--w:24%" aria-hidden="true">one line per incident: what happened, what was done, how it ended</p></div>
       <figcaption><b>Fig. 1.</b> The live map at night. Incidents along the top, one line each; service levels for the day on the right.</figcaption>
     </figure>
     <div class="num"></div>
