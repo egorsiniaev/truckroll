@@ -72,7 +72,12 @@
   figcaption b { color: var(--ink); font-weight: 600; }
   .pair { display: grid; grid-template-columns: 1.55fr 1fr; gap: 22px; align-items: start; }
   .pair.even { grid-template-columns: 1fr 1fr; }
-  .phone { max-width: 300px; justify-self: center; }
+  .phone { max-width: 329px; justify-self: center; }
+  /* The charger panel and the phone side by side at the same height; the panel is cropped from the top. */
+  .pair.same { grid-template-columns: minmax(0, 1fr) 329px; }
+  .pair.same .frame { height: 560px; overflow: hidden; }
+  .pair.same .frame img { height: 100%; width: 100%; object-fit: cover; object-position: top; }
+  @media (max-width: 900px) { .pair.same { grid-template-columns: 1fr; } .pair.same .frame { height: auto; } .pair.same .frame img { height: auto; } }
 
   /* Spec sheet instead of stat cards. */
   dl.spec { display: grid; grid-template-columns: max-content 1fr; gap: 0; margin: 18px 0 4px; border-top: 1px solid var(--ink); font-size: 15px; }
@@ -94,6 +99,7 @@
   ol.log li { counter-increment: log; display: grid; grid-template-columns: 34px 1fr; padding: 10px 0; border-bottom: 1px solid var(--rule); margin: 0; }
   ol.log li::before { content: counter(log, decimal-leading-zero); font: 600 13px/1.6 var(--mono); color: var(--hivis); }
   ol.log b { display: block; }
+  ol.log li > b, ol.log li > p { grid-column: 2; } ol.log li > p { margin: 2px 0 0; }
 
   svg text { font-family: var(--mono); fill: var(--ink); }
   svg .box { fill: #fbf9f4; stroke: var(--ink); stroke-width: 1.4; }
@@ -151,7 +157,7 @@
     <div class="num">01<span>What and why</span></div>
     <div class="body">
       <h2>A charge point operator, minus the chargers</h2>
-      <p>Truckroll pretends to be a small EV charging operator in the Netherlands. Four sites, fifty chargers, seventy connectors. The chargers are simulated, but they speak the real protocol (OCPP 1.6J) to a backend I wrote, and everything around them behaves like the real thing: drivers arrive and queue, the grid has limits, power gets expensive in the evening, the wind knocks out a site’s uplink, a firmware update goes wrong.</p>
+      <p>Truckroll pretends to be a small EV charging operator in the Netherlands. Four sites, fifty chargers, seventy connectors. The chargers are simulated, but they speak the real protocol (<a href="https://openchargealliance.org/protocols/open-charge-point-protocol/">OCPP 1.6J</a>) to a backend I wrote, and everything around them behaves like the real thing: drivers arrive and queue, the grid has limits, power gets expensive in the evening, the wind knocks out a site’s uplink, a firmware update goes wrong.</p>
       <p>The point is to learn the operator’s side of the job end to end, in one system I can break whenever I like:</p>
       <ul>
         <li>how chargers, a backend and the grid talk to each other, and where that goes wrong;</li>
@@ -162,11 +168,11 @@
       <p>It runs live, all the time. The numbers on this page come from it.</p>
       <dl class="spec">
         <dt>Fleet</dt><dd>50 chargers, 70 connectors, 4 sites with their own demand patterns</dd>
-        <dt>Protocol</dt><dd>OCPP 1.6J over WebSocket: boot, heartbeats, authorize, sessions, meter values, smart charging profiles, resets</dd>
-        <dt>Real inputs</dt><dd>ENTSO-E day-ahead prices for NL (15-minute slots), Open-Meteo weather, Amsterdam time</dd>
+        <dt>Protocol</dt><dd><a href="https://openchargealliance.org/protocols/open-charge-point-protocol/">OCPP 1.6J</a> over WebSocket: boot, heartbeats, authorize, sessions, meter values, smart charging profiles, resets</dd>
+        <dt>Real inputs</dt><dd><a href="https://transparency.entsoe.eu/">ENTSO-E</a> day-ahead prices for NL (15-minute slots), <a href="https://open-meteo.com/">Open-Meteo</a> weather, Amsterdam time</dd>
         <dt>Faults</dt><dd>13 scenarios, one every 5 to 10 minutes, plus weather-triggered ones</dd>
-        <dt>Handled so far</dt><dd>158 incidents in the history, 670 sessions started today with none failing to start</dd>
-        <dt>AI</dt><dd>Gemini 3.5 Flash-Lite, one call per incident, about 700 tokens in and 110 out; $0.004 for a whole day at paid prices</dd>
+        
+        <dt>AI</dt><dd><a href="https://ai.google.dev/gemini-api/docs/models">Gemini 3.5 Flash-Lite</a>, one call per incident, about 700 tokens in and 110 out; $0.004 for a whole day at paid prices</dd>
         <dt>Tests</dt><dd>184, in the backend and control service</dd>
       </dl>
     </div>
@@ -185,7 +191,7 @@
     </figure>
     <div class="num"></div>
     <div class="body">
-      <div class="pair">
+      <div class="pair same">
         <figure><div class="frame"><img src="img/station.webp" alt="Details for one charger: power, limit, connectors with delivered and needed energy and an ETA" loading="lazy"></div>
           <figcaption><b>Fig. 2.</b> One charger: power now, the limit and where it comes from, and per connector what the car has had, what it needs and when it should be done.</figcaption></figure>
         <figure class="phone"><div class="frame"><img src="img/phone.webp" alt="The live map on a phone, with incidents in a sheet at the bottom" loading="lazy"></div>
@@ -198,7 +204,7 @@
     <div class="num">03<span>How it fits together</span></div>
     <div class="body">
       <h2>Architecture</h2>
-      <p>Everything runs in Docker Compose on one small Hetzner server. The simulated chargers connect to my backend (the CSMS) through Toxiproxy, one proxy per site, so a site’s network can drop, slow down or flap without touching the code on either end. A control service sits on top: it reads the fleet, runs the energy model and the drivers, detects incidents, asks people and the AI, and serves the map.</p>
+      <p>Everything runs in Docker Compose on one small Hetzner server. The simulated chargers connect to my backend (the CSMS) through <a href="https://github.com/Shopify/toxiproxy">Toxiproxy</a>, one proxy per site, so a site’s network can drop, slow down or flap without touching the code on either end. A control service sits on top: it reads the fleet, runs the energy model and the drivers, detects incidents, asks people and the AI, and serves the map.</p>
     </div>
     <figure class="wide scroll-x">
       <svg viewBox="0 0 1040 500" role="img" aria-label="Architecture diagram">
@@ -261,13 +267,13 @@
     <div class="num"></div>
     <div class="body">
       <dl class="spec">
-        <dt>Backend</dt><dd>Python 3.12, FastAPI, asyncio, mobilityhouse <code>ocpp</code>, websockets</dd>
-        <dt>Chargers</dt><dd>SAP e-mobility charging stations simulator, driven over its UI protocol</dd>
-        <dt>Network faults</dt><dd>Toxiproxy</dd>
-        <dt>Observability</dt><dd>OpenTelemetry collector, Prometheus, Loki, Grafana</dd>
-        <dt>AI</dt><dd>Gemini 3.5 Flash-Lite over REST, JSON schema output, minimal thinking</dd>
+        <dt>Backend</dt><dd>Python 3.12, <a href="https://fastapi.tiangolo.com/">FastAPI</a>, asyncio, <a href="https://github.com/mobilityhouse/ocpp">mobilityhouse <code>ocpp</code></a>, <a href="https://websockets.readthedocs.io/">websockets</a></dd>
+        <dt>Chargers</dt><dd><a href="https://github.com/SAP/e-mobility-charging-stations-simulator">SAP e-mobility charging stations simulator</a>, driven over its UI protocol</dd>
+        <dt>Network faults</dt><dd><a href="https://github.com/Shopify/toxiproxy">Toxiproxy</a></dd>
+        <dt>Observability</dt><dd><a href="https://opentelemetry.io/docs/collector/">OpenTelemetry collector</a>, <a href="https://prometheus.io/">Prometheus</a>, <a href="https://grafana.com/oss/loki/">Loki</a>, <a href="https://grafana.com/oss/grafana/">Grafana</a></dd>
+        <dt>AI</dt><dd><a href="https://ai.google.dev/gemini-api/docs">Gemini 3.5 Flash-Lite</a> over REST, JSON schema output, minimal thinking</dd>
         <dt>Front end</dt><dd>Plain JavaScript and SVG, no framework, no build step</dd>
-        <dt>Hosting</dt><dd>Docker Compose, Caddy, one Hetzner CX23 (2 vCPU, 4 GB); the whole stack uses about 1.4 GB</dd>
+        <dt>Hosting</dt><dd><a href="https://docs.docker.com/compose/">Docker Compose</a>, <a href="https://caddyserver.com/">Caddy</a>, one <a href="https://www.hetzner.com/cloud/">Hetzner</a> CX23 (2 vCPU, 4 GB); the whole stack uses about 1.4 GB</dd>
       </dl>
     </div>
   </section>
@@ -278,7 +284,7 @@
       <h2>Power costs money, the grid has limits, drivers have patience</h2>
       <p>The energy side is a small model of what a real site controller does.</p>
       <ul>
-        <li><b>Prices</b> are the real Dutch day-ahead market from ENTSO-E, plus about €0.11/kWh of fees and taxes. The evening peak hurts.</li>
+        <li><b>Prices</b> are the real Dutch day-ahead market from <a href="https://transparency.entsoe.eu/">ENTSO-E</a>, plus about €0.11/kWh of fees and taxes. The evening peak hurts.</li>
         <li><b>Grid caps</b> per site. The controller shares the available power between the cars charging there, and the depot’s battery tops up when power is cheap and supports the site when it’s expensive.</li>
         <li><b>Limits stack</b>, and the lowest one wins: the site’s cap, a grid operator’s congestion request, an operator’s manual limit, the battery plan. The charger page says which one is active.</li>
         <li><b>Weather</b> is real: solar on the depot roof, cold batteries slowing DC charging below 0&nbsp;°C, strong gusts making a site’s uplink flap.</li>
@@ -300,8 +306,8 @@
       <p>Each incident is a single line: what happened, what was done, how it ended. Clicking it opens the full timeline.</p>
     </div>
     <figure class="wide">
-      <div class="frame"><img src="img/incident.webp" alt="Incident list with one incident expanded into its timeline" loading="lazy"></div>
-      <figcaption><b>Fig. 5.</b> Each step is coloured by type: red detected, blue response, amber a question, purple the AI agent, green recovered. Times to detect, acknowledge, mitigate and resolve sit on top of the timeline.</figcaption>
+      <div class="frame"><img src="img/incident.webp" alt="One incident expanded into its full timeline, from detection to recovery" loading="lazy"></div>
+      <figcaption><b>Fig. 5.</b> One incident from start to finish. A charger reported 23.4 kWh in 30 seconds, which a 150 kW charger can’t deliver. Billing went on hold, the agent blamed the hardware and suggested a calibration, nobody answered within 90 s, so a technician went out. The meter was fine: the bad number came from the data, not the meter. Billing was released 30 minutes after the alert.</figcaption>
     </figure>
     <div class="num"></div>
     <div class="body">
@@ -393,8 +399,8 @@
       <h2>Post-mortems, NIS2 and the Cyber Resilience Act</h2>
       <p>Every incident has a report page. Rules, not the model, decide which regulations apply, and they say why:</p>
       <ul>
-        <li><b>NIS2</b> (in the Netherlands, the Cyberbeveiligingswet): charging operators count as the energy sector. A significant incident, here a whole site down for 30 minutes or a backend failure hitting every site for 10, needs an early warning within 24 hours, a notification within 72 and a final report within a month.</li>
-        <li><b>CRA</b> (reporting since 11 September 2026): manufacturers report actively exploited vulnerabilities and severe security incidents in their products, 24 hours, 72 hours, then 14 days after a fix.</li>
+        <li><b><a href="https://digital-strategy.ec.europa.eu/en/policies/nis2-directive">NIS2</a></b> (in the Netherlands, the Cyberbeveiligingswet): charging operators count as the energy sector. A significant incident, here a whole site down for 30 minutes or a backend failure hitting every site for 10, needs an early warning within 24 hours, a notification within 72 and a final report within a month.</li>
+        <li><b><a href="https://digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act">CRA</a></b> (reporting since 11 September 2026): manufacturers report actively exploited vulnerabilities and severe security incidents in their products, 24 hours, 72 hours, then 14 days after a fix.</li>
       </ul>
       <p>The AI drafts the post-mortem and any notifications in one call, using only the facts from the incident: summary, impact, root cause, what worked, what to improve, actions with an owner. A person approves each part. Truckroll never sends anything to an authority.</p>
     </div>
@@ -447,10 +453,10 @@
       <h2>Things I got wrong</h2>
       <p>The repository keeps an honest log. A few entries, because they taught more than the parts that worked:</p>
       <ol class="log">
-        <li><b>Twice, a stale starting point.</b> The meter check took a session’s first reading from the previous session, and later the driver model did the same with delivered energy. The first produced a night of false calibration alarms; the second made cars charge forever and queues grow. Both now take the backend’s own per-session figure.</li>
-        <li><b>A restart that closed 24 incidents.</b> A timer saved by one build was read back by the next as the wrong kind of time, so a “quiet for 30 minutes” check passed instantly. Timers are now stored with their kind, and the 24 records were corrected rather than left wrong.</li>
-        <li><b>Deploys that emptied the map.</b> Every deploy rebuilt the charger simulator from source and cut every session. Deploys now build only my own services, and a site that loses all its sessions at once refills when it comes back.</li>
-        <li><b>An AI summary that disagreed with its own numbers.</b> A cached text was shown next to newer facts. Now it’s cached per set of facts, or not shown.</li>
+        <li><b>The same mistake, twice: measuring from the wrong starting point.</b><p>To work out what a session has used, you subtract the meter reading at its start from the reading now. Twice I took the “start” reading too early, when the meter still showed the previous session’s total. In the meter check, that raised a night of false calibration alarms. In the driver model, cars never reached their target, so they charged forever and the queues grew. Both now use the backend’s own figure for each session.</p></li>
+        <li><b>A restart that closed 24 incidents.</b><p>A timer saved by one build was read back by the next as the wrong kind of time, so a “quiet for 30 minutes” check passed instantly. Timers are now stored with their kind, and the 24 records were corrected rather than left wrong.</p></li>
+        <li><b>Deploys that emptied the map.</b><p>Every deploy rebuilt the charger simulator from source and cut every session. Deploys now build only my own services, and a site that loses all its sessions at once refills when it comes back.</p></li>
+        <li><b>An AI summary that disagreed with its own numbers.</b><p>A cached text was shown next to newer facts. Now it’s cached per set of facts, or not shown.</p></li>
       </ol>
     </div>
   </section>
@@ -459,7 +465,7 @@
     <div class="num">11<span>Next</span></div>
     <div class="body">
       <h2>A real charger on the desk</h2>
-      <p>The next station on the network is physical: an ESP32 running MicroOcpp in a 3D-printed pedestal, a relay that clicks like a contactor, an INA226 measuring the real current, two LED rings (charger status, and the site’s load against its grid cap), an RFID reader with valid, expired and unknown cards, and a 1:24 taxi as the car, whose LED strip dims when the site controller lowers the limit. Low voltage only, nothing near mains. It will join as its own site over TLS, under a camera, so the incidents above can happen to something you can see.</p>
+      <p>The next station on the network is physical: an ESP32 running <a href="https://github.com/matth-x/MicroOcpp">MicroOcpp</a> in a 3D-printed pedestal, a relay that clicks like a contactor, an INA226 measuring the real current, two LED rings (charger status, and the site’s load against its grid cap), an RFID reader with valid, expired and unknown cards, and a 1:24 taxi as the car, whose LED strip dims when the site controller lowers the limit. Low voltage only, nothing near mains. It will join as its own site over TLS, under a camera, so the incidents above can happen to something you can see.</p>
       <p>After that: signed firmware, an SBOM and a vulnerability scan in CI, which is what the CRA expects from a product with a radio in it.</p>
     </div>
     <figure class="wide">
