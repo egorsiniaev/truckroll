@@ -587,3 +587,16 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
   background-repeat: no-repeat; background-position: right 8px center; max-width: 100%; cursor: pointer;
 }
 .control select:focus-visible, .tab-body select:focus-visible { outline: 2px solid #93c5fd; outline-offset: 1px; }
+
+/* Incident row: dot | time | title + chain (wraps under the title) | status note (own column, wraps). */
+.inc-row .line { display: grid; grid-template-columns: 9px auto minmax(0, 1fr) minmax(0, max-content); column-gap: 10px;
+                 align-items: baseline; white-space: normal; }
+.inc-row .line .sev { align-self: start; margin-top: 4px; }
+.inc-row .what { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; min-width: 0; }
+.inc-row .what .title { flex: 0 1 auto; min-width: 0; }
+.inc-row .what .chain { flex: 1 1 260px; display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 2px; min-width: 0; }
+.inc-row .line small { max-width: 34ch; margin-left: 0; text-align: right; justify-self: end; white-space: normal; line-height: 1.35; }
+@media (max-width: 700px) {
+  .inc-row .line { grid-template-columns: 9px auto minmax(0, 1fr); }
+  .inc-row .line small { grid-column: 3; justify-self: start; text-align: left; max-width: none; margin-top: 2px; }
+}

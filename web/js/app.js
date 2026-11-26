@@ -284,7 +284,8 @@ const billing = (i) => !i.billing ? "" : i.billing.released ? ` · billing relea
 
 function incidentAge(i) {
   if (i.status === "recovered") return `fixed in ${dur(i.ttr_s)}${billing(i)}`;
-  const eta = i.eta?.in_s != null ? ` · fix ~${clockIn(i.eta.in_s)} (${esc(i.eta.basis)})` : i.eta ? ` · ${esc(i.eta.basis)}` : "";
+  // The ETA's basis goes in a tooltip: it's the long part and rarely what you scan for.
+  const eta = i.eta?.in_s != null ? ` · <span title="${esc(i.eta.basis)}">fix ~${clockIn(i.eta.in_s)}</span>` : i.eta ? ` · ${esc(i.eta.basis)}` : "";
   return `${i.status === "monitoring" ? "watching · " : ""}${dur(i.age_s)} open${eta}${billing(i)}`;
 }
 
@@ -312,7 +313,7 @@ function renderFeed() {
       const steps = expanded === i.id ? `<ol class="steps">${metricsLine(i)}${i.timeline.map((t) => `<li class="${t.type}" title="${esc(t.text)}">
           <time>${fmtTime(t.time)}</time><b>${STEP[t.type] ?? t.type}</b><span>${esc(t.text)}</span><em>${ACTOR[t.actor] ?? ""}</em></li>`).join("")}</ol>` : "";
       return `<li class="inc-row ${i.severity} ${i.status} ${expanded === i.id ? "open" : ""}" data-inc="${esc(i.id)}">
-        <div class="line"><i class="sev"></i><time class="opened">${new Date(i.opened).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><b class="title">${esc(i.title)}</b><span class="chain">${chain}</span><small>${incidentAge(i)}</small></div>${steps}</li>`;
+        <div class="line"><i class="sev"></i><time class="opened">${new Date(i.opened).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><span class="what"><b class="title">${esc(i.title)}</b><span class="chain">${chain}</span></span><small>${incidentAge(i)}</small></div>${steps}</li>`;
     }).join("");
     list.querySelectorAll("[data-inc] > .line").forEach((line) => {
       line.onclick = () => {
