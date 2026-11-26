@@ -594,7 +594,9 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 .inc-row .line .sev { align-self: start; margin-top: 4px; }
 .inc-row .what { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; min-width: 0; }
 .inc-row .what .title { flex: 0 1 auto; min-width: 0; }
-.inc-row .what .chain { flex: 1 1 260px; display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 2px; min-width: 0; }
+/* The chain sits beside the title only if all of it fits; otherwise the whole chain moves under the title. */
+.inc-row .what .chain { flex: 0 1 max-content; max-width: 100%; display: flex; flex-wrap: wrap; align-items: baseline;
+                        row-gap: 2px; min-width: 0; }
 .inc-row .line small { max-width: 34ch; margin-left: 0; text-align: right; justify-self: end; white-space: normal; line-height: 1.35; }
 @media (max-width: 700px) {
   .inc-row .line { grid-template-columns: 9px auto minmax(0, 1fr); }
