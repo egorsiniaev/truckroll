@@ -17,12 +17,12 @@
    Guide: docs/project-pages.md. Each page sets --accent (brand) and --accent-dark (readable on the dark ground). */
 :root {
   color-scheme: dark;
-  --bg: #121212;
-  --panel: #1a1918;
-  --ink: #f5f3ee;
-  --ink-2: #dcd8cf;
-  --muted: #a39e93;
-  --rule: #3a3834;
+  --bg: #0a0b0f;
+  --panel: #12141c;
+  --ink: #f4f5f7;
+  --ink-2: #c9cdd4;
+  --muted: #9aa0ab;
+  --rule: #262a35;
   --paper: var(--bg);  /* old names, still used by the source previews */
   --paper-2: var(--panel);
   --accent: #e4570f;  /* each page overrides this and --accent-dark */
@@ -69,7 +69,8 @@ code { background: var(--panel); padding: 0 4px; border-radius: 2px; }
 .strip a { text-decoration: none; } .strip a:hover { color: var(--ink); }
 
 /* Masthead: name, lead, links; the definition note follows the links. */
-.masthead { display: flex; flex-direction: column; padding: 64px 0 48px; border-bottom: 1px solid var(--rule); max-width: var(--col); }
+.masthead { display: flex; flex-direction: column; padding: 64px 0 48px; max-width: var(--col); margin: 0 auto; }
+.masthead + section, .masthead + .spec-strip { border-top: 1px solid var(--rule); }
 .masthead > div:not(.tag) { order: 1; }
 .masthead .tag { order: 2; font: 12.5px/1.6 var(--mono); color: var(--muted); margin-top: 32px; }
 .masthead .tag b { color: var(--hl); font-weight: 700; margin-right: 8px; }
@@ -77,15 +78,16 @@ h1 { font-size: 56px; line-height: 1.05; letter-spacing: -.02em; max-width: 17ch
 h1 .dot { color: var(--hl); }
 .lead { font-size: 20px; line-height: 1.5; margin: 24px 0 24px; color: var(--ink-2); }
 .go { display: flex; flex-wrap: wrap; gap: 8px 24px; font-weight: 600; }
-.go a::after { content: " →"; }
+.go a[href^="http"]::after, .strip a[href^="http"]::after { content: "\00a0↗"; }  /* only links that leave the site */
 
 /* Sections: a numbered label with a heavy rule, then the reading column; figures go wider. */
 section { display: block; padding: 64px 0 0; }
+.masthead + section { margin-top: 0; }
 section > .num { font: 500 12.5px/1.4 var(--mono); color: var(--hl); font-weight: 700; padding-bottom: 8px; margin-bottom: 24px;
-                 border-bottom: 2px solid var(--ink); max-width: var(--col); }
+                 border-bottom: 2px solid var(--ink); max-width: var(--col); margin-left: auto; margin-right: auto; }
 section > .num span { color: var(--muted); font-weight: 500; margin-left: 12px; }
 section > .num:empty { display: none; }
-section > .body { min-width: 0; max-width: var(--col); }
+section > .body { min-width: 0; max-width: var(--col); margin-left: auto; margin-right: auto; }
 section > .body + .body, section > figure + .body { margin-top: 32px; }
 h2 { font-size: 30px; line-height: 1.18; letter-spacing: -.01em; margin-bottom: 16px; max-width: 24ch; }
 h3 { font-size: 20px; line-height: 1.3; margin: 32px 0 8px; }
@@ -94,6 +96,7 @@ h3 { font-size: 20px; line-height: 1.3; margin: 32px 0 8px; }
 .body li { margin: 4px 0; }
 .body li::marker { color: var(--hl); }
 .wide { margin: 24px 0 8px; min-width: 0; }
+section > figure:not(.wide) { max-width: var(--col); margin-left: auto; margin-right: auto; }
 .note { font: 13px/1.6 var(--mono); color: var(--muted); margin: 16px 0; }
 
 figure { margin: 24px 0 8px; min-width: 0; }
@@ -119,7 +122,7 @@ dl.spec dt { font: 700 13px/1.6 var(--mono); padding-right: 24px; color: var(--i
 dl.spec dd { color: var(--ink-2); }
 
 /* Spec strip: four numbers in a panel, one inset outside the text column so its text lines up. */
-.spec-strip { display: grid; grid-template-columns: repeat(4, 1fr); margin: 48px calc(-1 * var(--inset)) 0; max-width: calc(var(--col) + 2 * var(--inset));
+.spec-strip { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0 auto 0; max-width: calc(var(--col) + 2 * var(--inset));
               background: var(--panel); border: 1px solid var(--rule); border-top: 2px solid var(--ink); }
 .spec-strip > div { padding: 16px var(--inset); border-right: 1px solid var(--rule); }
 .spec-strip > div:last-child { border-right: 0; }
@@ -236,7 +239,7 @@ footer { border-top: 1px solid var(--rule); margin-top: 64px; padding-top: 16px;
 
   <div class="strip">
     <span>Truckroll / on-call notes</span>
-    <span>Nov 2026 · <a href="https://truckroll.siniaev.dev">live: truckroll.siniaev.dev</a></span>
+    <span>Nov 2026 · <a href="https://truckroll.siniaev.dev">truckroll.siniaev.dev</a></span>
   </div>
 
   <header class="masthead">
@@ -251,6 +254,8 @@ footer { border-top: 1px solid var(--rule); margin-top: 64px; padding-top: 16px;
       </div>
     </div>
   </header>
+  <div class="spec-strip"><div><div class="n">50</div><div class="l">chargers · OCPP 1.6J</div></div><div class="hot"><div class="n">13</div><div class="l">fault scenarios</div></div><div><div class="n">175</div><div class="l">tests</div></div><div><div class="n">$0.0004</div><div class="l">per AI triage</div></div></div>
+
 
   <section>
     <div class="num">01<span>What and why</span></div>
@@ -271,8 +276,8 @@ footer { border-top: 1px solid var(--rule); margin-top: 64px; padding-top: 16px;
         <dt>Real inputs</dt><dd><a href="https://transparency.entsoe.eu/">ENTSO-E</a> day-ahead prices for NL (15-minute slots), <a href="https://open-meteo.com/">Open-Meteo</a> weather, Amsterdam time</dd>
         <dt>Faults</dt><dd>13 scenarios, one every 5 to 10 minutes, plus weather-triggered ones</dd>
         
-        <dt>AI</dt><dd><a href="https://ai.google.dev/gemini-api/docs/models">Gemini 3.5 Flash-Lite</a>, one call per incident, about 700 tokens in and 110 out; $0.004 for a whole day at paid prices</dd>
-        <dt>Tests</dt><dd>184, in the backend and control service</dd>
+        <dt>AI</dt><dd><a href="https://ai.google.dev/gemini-api/docs/models">Gemini 3.5 Flash-Lite</a>, one call per incident, about 700 tokens in and 110 out; about $0.0004 per triage at paid prices; a typical day is about a cent, and the 150-call cap keeps it under $0.07</dd>
+        <dt>Tests</dt><dd>175, in the backend and the control service</dd>
       </dl>
     </div>
   </section>
@@ -486,7 +491,7 @@ footer { border-top: 1px solid var(--rule); margin-top: 64px; padding-top: 16px;
         <tr><td>Weak on</td><td class="n">22%</td><td>stuck connector 2/9: it calls a firmware hang “expected”</td></tr>
         <tr><td>False “all clear”</td><td class="n missed">14</td><td>said nothing was needed while a real fault ran; the reason the default for unsure suggestions is no</td></tr>
         <tr><td>Time to a summary</td><td class="n">20 s</td><td>median, from the incident opening</td></tr>
-        <tr><td>Size of a triage</td><td class="n">≈ 700 / 110</td><td>tokens in / out; the free tier covers it, paid would be $0.004 a day</td></tr>
+        <tr><td>Size of a triage</td><td class="n">≈ 700 / 110</td><td>tokens in / out; the free tier covers it. At paid prices that’s about $0.0004 per triage, about a cent a day</td></tr>
       </table>
       <p class="note">One early mistake: scenario events leaked into the agent’s context, so it could read the answer. The leak was fixed and scoring restarted from zero; runs before the fix aren’t counted.</p>
     </div>
