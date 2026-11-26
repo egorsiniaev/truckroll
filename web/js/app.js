@@ -77,11 +77,13 @@ svg.addEventListener("pointerdown", (e) => {
   if (e.pointerType === "touch") touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (touches.size === 2) {
     const [a, b] = [...touches.values()];
+    stopEasing();
     pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), vb: { ...vb }, mid: svgPoint((a.x + b.x) / 2, (a.y + b.y) / 2) };
     drag = null;
     suppressClick = true;
     return;
   }
+  stopEasing();
   drag = { x: e.clientX, y: e.clientY, vb: { ...vb }, moved: false };
 });
 window.addEventListener("pointermove", (e) => {
@@ -91,7 +93,7 @@ window.addEventListener("pointermove", (e) => {
     const d = Math.hypot(a.x - b.x, a.y - b.y);
     if (d < 10) return;
     vb = { ...pinch.vb };
-    zoom(pinch.d / d, pinch.mid.x, pinch.mid.y);
+    zoom(pinch.d / d, pinch.mid.x, pinch.mid.y, true);
     return;
   }
   if (!drag) return;
@@ -129,22 +131,43 @@ document.querySelectorAll(".kpi").forEach((k) => {
   k.classList.add("clickable");
   k.onclick = () => { selected = { type: "kpi", id: k.dataset.kpi }; switchTab("details"); render(); };
 });
-function zoom(factor, cx, cy) {
-  const w = Math.min(4000, Math.max(400, vb.w * factor));
-  const h = w * (vb.h / vb.w);
-  const px = cx ?? vb.x + vb.w / 2;
-  const py = cy ?? vb.y + vb.h / 2;
-  vb = { x: px - (px - vb.x) * (w / vb.w), y: py - (py - vb.y) * (h / vb.h), w, h };
+// Smooth zoom: wheel, buttons and reset set a goal and the view eases toward it; drag and pinch follow directly.
+const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)");
+const EASE_MS = 90;  // time constant: about 3x this to settle
+let goal = null;
+let easing = 0;
+function stepView(t, last) {
+  if (!goal) { easing = 0; return; }
+  const k = 1 - Math.exp(-(t - last) / EASE_MS);
+  vb = { x: vb.x + (goal.x - vb.x) * k, y: vb.y + (goal.y - vb.y) * k, w: vb.w + (goal.w - vb.w) * k, h: vb.h + (goal.h - vb.h) * k };
+  if (Math.abs(vb.w - goal.w) < 0.5 && Math.abs(vb.x - goal.x) < 0.5 && Math.abs(vb.y - goal.y) < 0.5) { vb = goal; goal = null; }
   applyView();
+  easing = requestAnimationFrame((now) => stepView(now, t));
+}
+function moveTo(target, immediate = false) {
+  if (immediate || REDUCED_MOTION.matches) { goal = null; cancelAnimationFrame(easing); easing = 0; vb = target; applyView(); return; }
+  goal = target;
+  if (!easing) easing = requestAnimationFrame((t) => stepView(t, t - 16));
+}
+function stopEasing() { goal = null; cancelAnimationFrame(easing); easing = 0; }
+function zoom(factor, cx, cy, immediate = false) {
+  const base = immediate ? vb : goal ?? vb;  // repeated clicks and wheel ticks add up
+  const w = Math.min(4000, Math.max(400, base.w * factor));
+  const h = w * (base.h / base.w);
+  const px = cx ?? base.x + base.w / 2;
+  const py = cy ?? base.y + base.h / 2;
+  moveTo({ x: px - (px - base.x) * (w / base.w), y: py - (py - base.y) * (h / base.h), w, h }, immediate);
 }
 svg.addEventListener("wheel", (e) => {
   e.preventDefault();
   const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
-  zoom(e.deltaY > 0 ? 1.1 : 1 / 1.1, pt.x, pt.y);
+  // Proportional to the scroll: trackpads send many small deltas, mouse wheels a few big ones.
+  const px = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+  zoom(Math.min(1.4, Math.max(0.7, Math.exp(px * 0.002))), pt.x, pt.y);
 }, { passive: false });
-document.getElementById("zoom-in").onclick = () => zoom(1 / 1.25);
-document.getElementById("zoom-out").onclick = () => zoom(1.25);
-document.getElementById("zoom-home").onclick = () => { vb = homeView(); applyView(); };
+document.getElementById("zoom-in").onclick = () => zoom(1 / 1.35);
+document.getElementById("zoom-out").onclick = () => zoom(1.35);
+document.getElementById("zoom-home").onclick = () => moveTo(homeView());
 
 // Incidents panel: collapsed state survives reloads. On phones it's a bottom sheet, collapsed by default.
 const feedKey = () => (PHONE.matches ? "feedCollapsedPhone" : "feedCollapsed");
