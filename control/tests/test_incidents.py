@@ -75,7 +75,7 @@ async def test_fault_that_returns_while_watching_escalates_the_same_incident():
     await m.observe(snap([station("S-1", "faulted"), station("S-2")]))
     assert clients.csms.resets == ["S-1"]  # no second reset
     await m.observe(snap([station("S-1"), station("S-2")]))
-    assert "technician" in m.snapshot()[0]["timeline"][-1]["text"]
+    assert "technician" in m.snapshot()[0]["timeline"][-1]["text"].lower()
 
 
 async def test_site_outage_is_one_incident_not_many():

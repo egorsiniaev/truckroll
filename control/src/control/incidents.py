@@ -255,7 +255,7 @@ class IncidentManager:
         sid = params.get("station")
         steps = {
             "reset": (lambda: self.clients.csms.reset(sid, "Soft"), "Soft reset sent (OCPP Reset).", "soft reset"),
-            "truck_roll": (None, "Truck roll dispatched (simulated), technician ETA 2 h.", "truck roll"),
+            "truck_roll": (None, "Truck roll dispatched (simulated).", "truck roll"),
             "rollback": (None, "Firmware rollback started on these chargers (simulated).", "rollback"),
             "free_vend": (lambda: self.clients.csms.chaos(free_vend=True),
                           "Free vend on: chargers accept every card without asking the auth backend.", "free vend"),
@@ -459,7 +459,16 @@ class IncidentManager:
             inc = self.open[key]
             if not faulted:
                 if inc.memo.get("truck"):
-                    self._close(key, "Fixed on site by the technician.", short="fixed on site")
+                    job = self.field.active_for(inc.id) if self.field is not None else None
+                    if job is None or inc.memo.get("field_fixed"):
+                        self._close(key, "Technician finished on site; the charger is healthy.", "technician",
+                                    short="resolved")
+                    elif not inc.memo.get("cleared_before_visit"):
+                        # Only the technician can say the cause is gone: keep the visit, watch until they're done.
+                        inc.memo["cleared_before_visit"] = True
+                        inc.status = "monitoring"
+                        inc.add("update", "Fault cleared before the technician arrived; the visit goes ahead to "
+                                          "check the cause.", short="cleared, visit kept")
                 elif inc.memo.get("reset_at") and not inc.memo.get("verify_from"):
                     inc.memo["verify_from"] = now
                     inc.status = "monitoring"
@@ -470,6 +479,10 @@ class IncidentManager:
                                      f"no truck roll needed.", "auto-rule", short="fixed remotely")
                 elif not inc.memo.get("reset_at"):
                     self._close(key, "Fault cleared by itself.", short="cleared")
+                continue
+            if inc.memo.pop("cleared_before_visit", None):
+                inc.status = "open"
+                inc.add("update", "Faulted again while the technician is on the way.", short="fault back")
                 continue
             if inc.memo.get("verify_from"):
                 # Came back while we were watching: physical problem, resets won't help.

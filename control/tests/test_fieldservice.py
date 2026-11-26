@@ -61,3 +61,34 @@ async def test_calibration_replaces_a_drifting_meter_and_closes():
     closed = m.snapshot()[0]
     assert closed["status"] == "recovered" and "replaced" in " ".join(e["text"] for e in closed["timeline"])
     assert closed["metrics"]["field_visit"] is True and closed["metrics"]["ttm_s"] is not None
+
+
+
+def station(state, status="Faulted"):
+    return {"id": "S-1", "site": "S", "state": state, "connected": True,
+            "connectors": [{"id": 1, "status": status, "error_code": "HighTemperature" if status == "Faulted" else "NoError",
+                            "status_age_s": 5}]}
+
+
+async def test_fault_that_clears_before_the_technician_arrives_waits_for_the_visit():
+    t = [0.0]
+    clients = Clients()
+    m = IncidentManager([{"code": "S"}], clients, clock=lambda: t[0])
+    fs = FieldService(clients, clock=lambda: t[0])
+    m.field = fs
+    await m._faults([station("faulted")], t[0])
+    key = "fault:S-1"
+    inc = m.open[key]
+    await m._run(inc, "truck_roll", {"station": "S-1"}, "operator")
+    assert "ETA 2 h" not in inc.timeline[-1]["text"]
+    job = fs.active_for(inc.id)
+    t[0] = job.arrive_at / 2  # still driving; the charger cools down by itself
+    await m._faults([station("available", "Available")], t[0])
+    assert key in m.open and inc.status == "monitoring" and inc.timeline[-1]["short"] == "cleared, visit kept"
+    t[0] = job.done_at
+    await fs.tick(m)
+    await m._faults([station("available", "Available")], t[0])
+    assert key not in m.open
+    texts = [e["text"] for e in inc.timeline]
+    assert any("No fault on arrival" in x for x in texts)
+    assert inc.timeline[-1]["short"] == "resolved" and inc.timeline[-1]["actor"] == "technician"

@@ -90,6 +90,8 @@ class FieldService:
         sid, csms, sim = job.station, self.clients.csms, self.clients.simulator
         kind = inc.kind if inc else ""
         try:
+            if kind == "fault" and inc is not None and inc.memo.get("cleared_before_visit"):
+                return "No fault on arrival: checked the cooling, fans and connectors; nothing to replace."
             if kind in ("fault", "stuck"):
                 for cid in (1, 2):
                     try:
