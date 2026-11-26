@@ -60,7 +60,6 @@ export async function post(path, body, button) {
   if (button) button.disabled = true;
   try {
     const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) });
-    if (res.status === 401) throw new Error("only the owner can change things here; watching is open to everyone");
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`);
     toast("Done");

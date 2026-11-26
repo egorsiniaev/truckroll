@@ -3,7 +3,7 @@
 Sits between the web page and the moving parts. Polls the CSMS admin API and Toxiproxy every 2 s, fetches
 Open-Meteo weather every 10 min, and streams one snapshot to every page over SSE. Serves the page from `web/`.
 
-**Local only: no auth yet.** Before anything goes public, the control API needs auth and a read-only public subset.
+No auth: on the public server anyone can watch and use the control panel (it only drives the simulation).
 
 | Endpoint | Does |
 |---|---|

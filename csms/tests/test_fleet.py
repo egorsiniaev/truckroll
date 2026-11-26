@@ -102,3 +102,17 @@ def test_status_since_only_moves_when_the_status_changes():
     assert fleet.get("S-1").connectors[1].status_since == 10.0
     fleet.set_status("S-1", 1, "Charging", "NoError", now=60.0)
     assert fleet.get("S-1").connectors[1].status_since == 60.0
+
+
+def test_new_session_starts_from_its_own_meter_start_not_the_previous_reading():
+    fleet = FleetStore()
+    fleet.connect("A2-HUB-00001", now=0.0)
+    old = fleet.start_transaction("A2-HUB-00001", connector_id=1, now=1.0, meter_start_wh=0.0)
+    fleet.record_meter("A2-HUB-00001", 1, power_w=50_000.0, energy_wh=30_000.0, now=2.0)
+    fleet.stop_transaction(old, now=3.0)
+
+    # The register restarts per session; until the first MeterValues, energy must read the new start, not 30 kWh.
+    fleet.start_transaction("A2-HUB-00001", connector_id=1, now=4.0, meter_start_wh=0.0)
+
+    conn = fleet.get("A2-HUB-00001").connectors[1]
+    assert conn.energy_wh - conn.meter_start_wh == 0.0

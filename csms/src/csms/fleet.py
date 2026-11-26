@@ -102,8 +102,10 @@ class FleetStore:
         with self._lock:
             tx_id = next(self._tx_seq)
             self._transactions = MappingProxyType({**self._transactions, tx_id: (station_id, connector_id)})
+            # The last reading may still be the previous session's; a new session starts at its own meter start.
+            fresh = {"energy_wh": meter_start_wh, "power_w": 0.0} if meter_start_wh is not None else {}
             station = _with_connector(self._existing(station_id), connector_id, transaction_id=tx_id,
-                                      meter_start_wh=meter_start_wh)
+                                      meter_start_wh=meter_start_wh, **fresh)
             self._put(replace(station, last_seen=now))
             return tx_id
 

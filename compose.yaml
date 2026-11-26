@@ -38,7 +38,7 @@ services:
       # Incident ledger = eval ground truth; kept out of the agent's reach.
       - control-data:/data
     ports:
-      # Local only: the control API has no auth yet.
+      # Local only; on the server Caddy is the way in.
       - "127.0.0.1:8080:8000"
     depends_on: [csms, toxiproxy, simulator]
     restart: unless-stopped

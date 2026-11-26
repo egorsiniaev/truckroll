@@ -13,8 +13,6 @@ services:
     volumes:
       # The folder, not the file: rsync replaces files, and a single-file mount would keep the old one.
       - ./deploy:/etc/caddy/conf:ro
-      # Login hash, created on the server only (never in git). Caddy refuses to start without it.
-      - /etc/truckroll:/etc/caddy/secrets:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on: [control]
