@@ -341,14 +341,13 @@ const KPI_INFO = {
   },
   margin: {
     title: "Margin today",
-    what: "Revenue from charging minus the cost of grid energy, since local midnight (or service start). Solar is free.",
+    what: "Revenue from charging minus the cost of grid energy and technician visits, since local midnight (or service start). Solar is free.",
     rows: (s) => s.sites.map((x) => [x.code, eur(x.economics?.margin_eur), `lost ${eur(x.economics?.lost_eur)}`]),
     value: (s) => eur(s.economics?.fleet?.margin_eur),
   },
   incidents: {
     title: "Open incidents",
-    what: "Problems the system detected and is handling: what happened, the automatic response, and recovery. "
-      + "Click an incident in the strip above the map for its timeline.",
+    what: "Problems the system detected and is handling: what happened, the automatic response, and recovery.",
     rows: (s) => (s.incidents || []).filter((i) => i.status !== "recovered").map((i) => [i.site, i.title, i.status]),
     value: (s) => `${(s.incidents || []).filter((i) => i.status === "open").length} open`,
   },
@@ -384,11 +383,11 @@ export function renderSlo(root, snapshot) {
   const rows = snapshot.slo || [];
   root.innerHTML = `
     <h3>Service levels today</h3>
-    <p class="meta">Since ${esc(snapshot.kpis?.uptime_since || "midnight")}. The targets are from GOALS.md.</p>
+    <p class="meta">Since ${esc(snapshot.kpis?.uptime_since || "midnight")}.</p>
     ${sloRows(rows.filter((r) => !RESPONSE_IDS.has(r.id)))}
     <h4>Incident response</h4>
     ${sloRows(rows.filter((r) => RESPONSE_IDS.has(r.id)))}
-    ${(snapshot.field_jobs || []).length ? `<h4>Technicians out</h4><ul class="rules">${snapshot.field_jobs.map((j) => `<li>🚐 ${esc(j.station)}: ${j.status === "driving" ? "on the way" : "on site"}, done in ${secs(j.in_s)}</li>`).join("")}</ul>` : ""}
+    ${(snapshot.field_jobs || []).length ? `<h4>Technicians out</h4><ul class="rules">${snapshot.field_jobs.map((j) => `<li>${esc(j.station)}: ${j.status === "driving" ? "on the way" : "on site"}, done in ${secs(j.in_s)}</li>`).join("")}</ul>` : ""}
     <h4>AI agent eval</h4>
     <div id="eval-box">${evalHtml(lastEval)}</div>
     <p class="hint">Click a&nbsp;site, a&nbsp;charger, a&nbsp;metric or&nbsp;an&nbsp;incident for details. Click empty map to&nbsp;come back here.</p>`;
@@ -416,5 +415,5 @@ function evalHtml(e) {
     <tr class="${e.median_seconds_to_summary == null ? "" : e.median_seconds_to_summary <= 120 ? "met" : "missed"}"><td><b>Time to summary</b><br><span class="muted">median, from incident open (target &lt; 2&nbsp;min)</span></td><td class="v">${e.median_seconds_to_summary == null ? "–" : `${Math.round(e.median_seconds_to_summary)}${NB}s`}</td></tr>
     <tr><td><b>Cost per triage</b><br><span class="muted">average tokens in / out</span></td><td class="v">${e.avg_tokens_in ?? "–"} / ${e.avg_tokens_out ?? "–"}</td></tr>
     ${Object.keys(e.by_mode || {}).length ? `<tr><td><b>Full context vs raw signals</b><br><span class="muted">A/B by incident: “blind” hides the rules’ title and&nbsp;timeline</span></td><td class="v">${Object.entries(e.by_mode).map(([m, v]) => `${m} ${p(v.accuracy)} (${v.runs})`).join("<br>")}</td></tr>` : ""}
-    </table><p class="meta">Scoring restarted after a&nbsp;fix: ${e.triages_before_leak_fix} earlier triages could see scenario events and&nbsp;aren’t counted. ${e.triages_with_queries} triages used Prometheus/Loki queries. ${e.runs} scenario runs scored since the agent went live (${e.runs_before_agent} earlier runs not scored); ${e.triages_total} triages, ${e.triages_outside_scenarios} outside scenarios. Small samples move a lot.</p>`;
+    </table><p class="meta">Scoring restarted after a&nbsp;fix. ${e.triages_before_leak_fix} earlier triages could see scenario events and&nbsp;aren’t counted. ${e.triages_with_queries} triages used Prometheus/Loki queries. ${e.runs} scenario runs scored since the agent went live (${e.runs_before_agent} earlier runs not scored); ${e.triages_total} triages, ${e.triages_outside_scenarios} outside scenarios. Small samples move a lot.</p>`;
 }
