@@ -326,16 +326,24 @@ SUMMARY_SYSTEM = (
 SUMMARY_SCHEMA = {"type": "OBJECT", "properties": {"bullets": {"type": "ARRAY", "items": {"type": "STRING"}}},
                   "required": ["bullets"]}
 SUMMARY_CACHE_S = 600
+SUMMARY_MIN_GAP_S = 60  # at most one new summary call a minute, whoever is visiting
 
 
 async def summarize(agent: "TriageAgent", facts: dict) -> list[str] | None:
-    """One cheap call, cached for 10 minutes, counted against the agent's caps."""
+    """One cheap call per distinct set of facts, cached for 10 minutes, counted against the agent's caps.
+    Never returns text written from other facts: when a new call isn't allowed, there is no AI summary."""
     now = agent.clock()
-    cached = getattr(agent, "_summary_cache", None)
-    if cached and now - cached[0] < SUMMARY_CACHE_S:
-        return cached[1]
-    if not agent._budget_ok():
+    key = json.dumps(facts, sort_keys=True, default=str)
+    cache = getattr(agent, "_summary_cache", None)
+    if not isinstance(cache, dict):
+        cache = agent._summary_cache = {}
+    for k in [k for k, (t, _) in cache.items() if now - t >= SUMMARY_CACHE_S]:
+        cache.pop(k)
+    if key in cache:
+        return cache[key][1]
+    if now - getattr(agent, "_summary_last_call", -1e9) < SUMMARY_MIN_GAP_S or not agent._budget_ok():
         return None
+    agent._summary_last_call = now
     body = {
         "systemInstruction": {"parts": [{"text": SUMMARY_SYSTEM}]},
         "contents": [{"role": "user", "parts": [{"text": json.dumps(facts, separators=(",", ":"))}]}],
@@ -347,7 +355,8 @@ async def summarize(agent: "TriageAgent", facts: dict) -> list[str] | None:
     agent.calls_recent.append(now)
     agent.calls_today += 1
     try:
-        res = await agent.http.post(URL.format(model=agent.model), json=body, timeout=30,
+        # Short: the handover card waits for this; when Gemini is slow it shows the facts alone.
+        res = await agent.http.post(URL.format(model=agent.model), json=body, timeout=10,
                                     headers={"x-goog-api-key": agent._key})
     except httpx.HTTPError:
         return None
@@ -364,5 +373,5 @@ async def summarize(agent: "TriageAgent", facts: dict) -> list[str] | None:
         bullets = json.loads(data["candidates"][0]["content"]["parts"][0]["text"])["bullets"][:3]
     except (KeyError, IndexError, json.JSONDecodeError):
         return None
-    agent._summary_cache = (now, bullets)
+    cache[key] = (now, bullets)
     return bullets

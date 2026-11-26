@@ -377,20 +377,35 @@ async function showHandover() {
   const { facts: f, ai } = await res.json();
   const box = document.getElementById("handover");
   const since = new Date(f.since).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
-  const list = (o) => Object.entries(o).map(([k, v]) => `${esc(k)} ${v}`).join(", ") || "none";
-  box.innerHTML = `<div class="handover-card"><button class="mini" id="handover-close" style="float:right">Got it</button>
-    <h3>While you were away <span class="muted">since ${esc(since)}</span></h3>
-    ${ai?.length ? `<ul class="ai">${ai.map((b) => `<li>${esc(b)}</li>`).join("")}</ul><p class="meta">Summary by the AI agent; facts below.</p>` : ""}
-    <div class="grid2">
-      <div class="stat"><b>${f.incidents_opened}</b><span>incidents opened (${esc(list(f.opened_by_kind))})</span></div>
-      <div class="stat"><b>${f.incidents_resolved}</b><span>resolved</span></div>
-      <div class="stat"><b>${f.decisions_by_default}</b><span>decisions went to the default; ${f.decisions_by_you} answered by you</span></div>
-      <div class="stat"><b>${f.margin_today_eur == null ? "–" : `€${f.margin_today_eur.toFixed(0)}`}</b><span>margin today</span></div>
+  const words = (k) => esc(String(k).replaceAll("_", " ").replaceAll("-", " "));
+  const chips = (o) => Object.entries(o).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<span class="ho-chip">${words(k)} <b>${v}</b></span>`).join("");
+  const margin = f.margin_today_eur;
+  const marginText = margin == null ? "–" : `${margin < 0 ? "−" : ""}€${Math.abs(margin).toFixed(0)}`;
+  const tile = (value, label, cls = "", extra = "") =>
+    `<div class="ho-tile ${cls}"><b>${value}</b><span>${label}</span>${extra}</div>`;
+  const section = (title, body) => `<section class="ho-sec"><h4>${title}</h4>${body}</section>`;
+  box.innerHTML = `<div class="handover-card" role="dialog" aria-labelledby="ho-title">
+    <header class="ho-head">
+      <div><h3 id="ho-title">While you were away</h3><p class="muted">since ${esc(since)}</p></div>
+      <button class="act primary" id="handover-close">Got it</button>
+    </header>
+    ${ai?.length ? `<div class="ho-ai"><span class="ho-badge">AI summary</span>
+      <ul>${ai.map((b) => `<li>${esc(b)}</li>`).join("")}</ul></div>` : ""}
+    <div class="ho-tiles">
+      ${tile(f.incidents_opened, "incidents opened")}
+      ${tile(f.incidents_resolved, "resolved", "ok")}
+      ${tile(f.decisions_by_default, `decisions went to${NB}the${NB}default · ${f.decisions_by_you} answered by${NB}you`, f.decisions_by_default && !f.decisions_by_you ? "warn" : "")}
+      ${tile(marginText, "margin today", margin < 0 ? "bad" : "ok")}
+      ${Object.keys(f.opened_by_kind).length ? `<div class="ho-chips ho-kinds">${chips(f.opened_by_kind)}</div>` : ""}
     </div>
-    ${f.waiting_for_you.length ? `<h4>Waiting for you</h4><ul class="rules">${f.waiting_for_you.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>` : ""}
-    ${f.still_open.length ? `<h4>Still open</h4><ul class="rules">${f.still_open.map((i) => `<li>${esc(i.title)} <span class="muted">${esc(i.eta ?? i.status)}</span></li>`).join("")}</ul>` : ""}
-    ${f.slos_missed.length ? `<p class="meta bad">Service levels missed today: ${f.slos_missed.map(esc).join(", ")}</p>` : ""}
-    <p class="meta">Scenarios run: ${esc(list(f.scenarios_run))}. Technicians out now: ${f.technicians_out}.</p></div>`;
+    ${f.waiting_for_you.length ? section("Waiting for you", `<ul class="ho-list">${f.waiting_for_you.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>`) : ""}
+    ${f.still_open.length ? section("Still open", `<ul class="ho-list">${f.still_open.map((i) =>
+      `<li><span>${esc(i.title)}</span><span class="ho-eta">${esc(i.eta ?? i.status)}</span></li>`).join("")}</ul>`) : ""}
+    ${f.slos_missed.length ? section("Service levels missed today", `<div class="ho-chips">${f.slos_missed.map((x) => `<span class="ho-chip bad">${esc(x)}</span>`).join("")}</div>`) : ""}
+    ${section("Scenarios run", `<div class="ho-chips">${chips(f.scenarios_run) || '<span class="muted">none</span>'}</div>
+      <p class="ho-foot">Technicians out now: ${f.technicians_out}. Facts come from the incident log; the AI only words the summary.</p>`)}
+  </div>`;
   box.hidden = false;
   document.getElementById("handover-close").onclick = () => { box.hidden = true; };
 }

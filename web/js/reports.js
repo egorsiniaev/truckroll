@@ -8,6 +8,10 @@ const only = document.getElementById("only-reportable");
 let rows = [];
 let current = null;
 
+// Same step colours and actor names as the incidents list on the main page.
+const ACTOR = { system: "system", "auto-rule": "auto rule", operator: "operator", scenario: "scenario", agent: "AI agent", technician: "technician" };
+const time = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "–");
+const metric = (label, v) => `<span class="rp-metric"><span>${label}</span><b>${dur(v)}</b></span>`;
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString([], { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "–");
 const dur = (s) => (s == null ? "–" : s >= 3600 ? `${(s / 3600).toFixed(1)}${NB}h` : s >= 60 ? `${Math.round(s / 60)}${NB}min` : `${s}${NB}s`);
 
@@ -37,7 +41,8 @@ function renderList() {
 
 function regime(name, a) {
   const d = a.deadlines || {};
-  return `<div class="regime ${a.applies ? "applies" : ""}"><b>${name}: ${a.applies ? "reportable" : "not reportable"}</b> <span class="muted">${esc(a.why)}</span>
+  return `<div class="regime ${a.applies ? "applies" : ""}"><b>${name}</b>
+    <span class="rp-pill ${a.applies ? "bad" : "ok"}">${a.applies ? "reportable" : "not reportable"}</span> <span class="muted">${esc(a.why)}</span>
     ${a.applies ? `<br>Early warning ${left(d.early_warning)}<br>Notification ${left(d.notification)}<br>Final report ${left(d.final_report)}` : ""}</div>`;
 }
 
@@ -56,8 +61,9 @@ async function open(id) {
   const d = rep?.doc;
   detail.innerHTML = `
     <h3>${esc(i.title)}</h3>
-    <p class="meta">${esc(i.id)} · ${esc(i.site)} · opened ${fmt(i.opened)} · ${i.status === "recovered" ? `resolved ${fmt(i.recovered)}` : esc(i.status)}</p>
-    <p class="meta">Detect ${dur(m.ttd_s)} · acknowledge ${dur(m.tta_s)} · mitigate ${dur(m.ttm_s)} · resolve ${dur(m.ttr_s)}${m.field_visit ? " · field visit" : ""}</p>
+    <p class="meta">${esc(i.id)} · ${esc(i.site)} · opened ${fmt(i.opened)}
+      <span class="rp-pill ${i.status === "recovered" ? "ok" : i.status === "monitoring" ? "warn" : "bad"}">${i.status === "recovered" ? `resolved ${fmt(i.recovered)}` : esc(i.status)}</span></p>
+    <div class="rp-metrics">${metric("detect", m.ttd_s)}${metric("acknowledge", m.tta_s)}${metric("mitigate", m.ttm_s)}${metric("resolve", m.ttr_s)}${m.field_visit ? '<span class="rp-metric"><span>field visit</span><b>yes</b></span>' : ""}</div>
     ${regime("NIS2 (Cyberbeveiligingswet)", a.nis2)}${regime("CRA", a.cra)}
     <div class="control"><button class="mini ${d ? "" : "primary"}" id="draft">${d ? "Redraft with AI" : "Draft with AI"}</button>
       <span class="muted">One Gemini call. You review and&nbsp;approve every part.</span></div>
@@ -71,7 +77,9 @@ async function open(id) {
       ${a.cra.applies ? part("CRA early warning (24 h)", "cra_early_warning", d.cra_early_warning, rep) : ""}
       <p class="meta">Drafted ${fmt(rep.generated)} by ${esc(rep.model)} (${rep.tokens?.[0]} tokens in, ${rep.tokens?.[1]} out).</p></div>`
       : `<p class="hint">No draft yet.</p>`}
-    <h4>Timeline</h4><ul class="rules">${i.timeline.map((t) => `<li><span class="muted">${fmt(t.time)}</span> <b>${esc(t.type)}</b> ${esc(t.text)} <span class="muted">${esc(t.actor)}</span></li>`).join("")}</ul>`;
+    <h4>Timeline</h4><ol class="rp-timeline">${i.timeline.map((t) => `<li class="${esc(t.type)}">
+      <time>${time(t.time)}</time><span class="step ${esc(t.type)}">${esc(t.short || t.type)}</span>
+      <span class="rp-actor ${esc(t.actor)}">${esc(ACTOR[t.actor] ?? t.actor)}</span><p>${esc(t.text)}</p></li>`).join("")}</ol>`;
   document.getElementById("draft").onclick = async (e) => {
     e.target.textContent = "Drafting…";
     const res = await post(`/api/reports/${encodeURIComponent(id)}/draft`, {}, e.target);

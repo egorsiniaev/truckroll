@@ -166,3 +166,17 @@ def test_only_read_only_allowlisted_queries_run():
     assert not allowed_query("promql", "up; drop")
     assert not allowed_query("logql", '{job="other"}')
     assert not allowed_query("sql", "select 1")
+
+
+async def test_summary_is_cached_per_facts_and_never_reused_for_other_facts():
+    from control.agent import summarize
+    t = [1000.0]
+    agent = TriageAgent(gemini({"bullets": ["63 incidents"]}), "k", "m", None, clock=lambda: t[0])
+    assert await summarize(agent, {"incidents_opened": 63}) == ["63 incidents"]
+    assert await summarize(agent, {"incidents_opened": 63}) == ["63 incidents"]  # cached, no new call
+    assert agent.calls_today == 1
+    t[0] += 10
+    assert await summarize(agent, {"incidents_opened": 58}) is None  # other facts, too soon: facts only
+    t[0] += 60
+    assert await summarize(agent, {"incidents_opened": 58}) == ["63 incidents"]  # (fake model) a fresh call
+    assert agent.calls_today == 2
