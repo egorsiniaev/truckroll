@@ -41,3 +41,11 @@ still the previous session's last value, and these chargers count per session, s
 46 sessions and those cars never reached their target (long queues, 3.5 h app waits). Same stale-baseline mistake as
 the meter drift check. Fixed: use the CSMS's per-session energy (meter at StartTransaction); the register fallback
 rebases when the register restarts.
+
+## 2026-11-26: map mostly empty again: cars left seconds after plugging in
+The CSMS kept the previous session's last meter reading when a new session started. These chargers restart their
+register per session (meter start 0), so "energy this session" was the old total (often 20-40 kWh) from the first
+second, the demand engine saw the car as full and stopped it. A2-HUB and UTR-RETAIL showed 0 cars at 26 and 15
+arrivals per hour; UTR-RETAIL counted 1,918 completed sessions for 326 starts. The previous fix (use the CSMS
+per-session figure) moved the same stale-baseline mistake into the CSMS: third time for this bug. Fixed: a new
+session's reading starts at its own meter start, with a test.
