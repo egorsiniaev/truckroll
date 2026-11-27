@@ -218,3 +218,14 @@ async def test_meter_values_from_an_ended_session_do_not_overwrite_the_current_o
         await cp.call(call.MeterValues(connector_id=1, transaction_id=old.transaction_id, meter_value=[
             {"timestamp": "t", "sampled_value": [{"value": "20000", "unit": "Wh"}]}]))
         assert fleet.get(STATION).connectors[1].energy_wh == 100
+
+
+async def test_late_meter_values_do_not_revive_a_closed_transaction(server, fleet):
+    async with station(server) as cp:
+        started = await cp.call(call.StartTransaction(connector_id=1, id_tag="GOOD-TAG", meter_start=0, timestamp="2026-11-24T10:00:00Z"))
+        await cp.call(call.StatusNotification(connector_id=1, error_code="NoError", status="Available"))
+        await cp.call(call.MeterValues(connector_id=1, transaction_id=started.transaction_id, meter_value=[
+            {"timestamp": "t", "sampled_value": [{"value": "5000", "unit": "Wh"}]}]))
+        conn = fleet.get(STATION).connectors[1]
+        assert conn.transaction_id is None
+        assert conn.power_w == 0.0
