@@ -7,7 +7,7 @@ A simulated EV charging operator that breaks on purpose, and the operations arou
 OCPP 1.6J to a backend written here, real Dutch power prices and weather, a fault injected every few minutes, an
 incident engine with people in the loop, and an AI triage agent that is scored against what was really injected.
 
-**Live:** [truckroll.siniaev.dev](https://truckroll.siniaev.dev) · **Write-up:** [siniaev.dev/truckroll](https://siniaev.dev/truckroll) · **Engineering log:** [LOG.md](LOG.md)
+**Live:** [truckroll.siniaev.dev](https://truckroll.siniaev.dev) · **Write-up:** [siniaev.dev/truckroll](https://siniaev.dev/truckroll/) · **Engineering log:** [LOG.md](LOG.md)
 
 ![The live map: four sites, cars queueing, incidents along the top](site/truckroll/img/app.webp)
 
