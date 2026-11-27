@@ -141,8 +141,7 @@ class StationConnection(ChargePoint):
     async def on_meter_values(self, connector_id, meter_value, **kwargs):
         tx = kwargs.get("transaction_id")
         current = self._fleet.get(self.id).connectors.get(connector_id) if self._fleet.get(self.id) else None
-        ended = bool(tx) and self._fleet.has_ended(int(tx))
-        if ended or (tx and current and current.transaction_id and int(tx) != current.transaction_id):
+        if tx and current and current.transaction_id and int(tx) != current.transaction_id:
             # A late reading from a session that already ended: it must not overwrite the current session's meter.
             self._telemetry.message("MeterValuesStale", self.site)
             log.info("station=%s connector=%s ignored meter values for ended tx=%s (current tx=%s)",
@@ -151,6 +150,12 @@ class StationConnection(ChargePoint):
         if tx and connector_id and self._fleet.adopt_transaction(self.id, connector_id, int(tx), self._clock()):
             log.warning("station=%s site=%s connector=%s adopted tx=%s started before a CSMS restart",
                         self.id, self.site, connector_id, tx)
+        owner = self._fleet.get(self.id).connectors.get(connector_id) if tx and self._fleet.get(self.id) else None
+        if tx and (owner is None or owner.transaction_id != int(tx)):
+            # A closed session's reading on an idle connector: not adopted, so it must not set power or energy.
+            self._telemetry.message("MeterValuesStale", self.site)
+            log.info("station=%s connector=%s ignored meter values for closed tx=%s", self.id, connector_id, tx)
+            return call_result.MeterValues()
         power_w, energy_wh = parse_meter_values(meter_value)
         factor = self._chaos.meter_factor.get(self.id)
         if factor and energy_wh is not None:

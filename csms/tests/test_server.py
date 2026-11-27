@@ -229,3 +229,13 @@ async def test_late_meter_values_do_not_revive_a_closed_transaction(server, flee
         conn = fleet.get(STATION).connectors[1]
         assert conn.transaction_id is None
         assert conn.power_w == 0.0
+
+
+async def test_session_closed_by_a_resync_boot_is_taken_back_while_the_charger_still_charges(server, fleet):
+    async with station(server) as cp:
+        started = await cp.call(call.StartTransaction(connector_id=1, id_tag="GOOD-TAG", meter_start=0, timestamp="2026-11-24T10:00:00Z"))
+        await cp.call(call.BootNotification(charge_point_model="AC22", charge_point_vendor="Truckroll"))
+        await cp.call(call.StatusNotification(connector_id=1, error_code="NoError", status="Charging"))
+        await cp.call(call.MeterValues(connector_id=1, transaction_id=started.transaction_id, meter_value=[
+            {"timestamp": "t", "sampled_value": [{"value": "5000", "unit": "Wh"}]}]))
+        assert fleet.get(STATION).connectors[1].transaction_id == started.transaction_id

@@ -9,7 +9,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 
-ENDED_MEMORY = 10_000  # closed transaction ids kept, so late readings can't revive them
+# A charger in one of these may have a session running; Available, Preparing, Faulted etc. means it doesn't.
+MAY_CHARGE = frozenset({"Unknown", "Charging", "SuspendedEV", "SuspendedEVSE"})
 
 
 def site_of(station_id: str) -> str:
@@ -56,7 +57,6 @@ class FleetStore:
         self._token_seq = itertools.count(1)
         # Start transaction ids from the clock, so ids from before a restart never collide with new ones.
         self._tx_seq = itertools.count(int(time.time()))
-        self._ended: frozenset[int] = frozenset()
 
     def get(self, station_id: str) -> Station | None:
         return self._stations.get(station_id)
@@ -119,7 +119,6 @@ class FleetStore:
                 return None
             station_id, connector_id = owner
             self._transactions = MappingProxyType({k: v for k, v in self._transactions.items() if k != tx_id})
-            self._remember_ended([tx_id])
             station = _with_connector(self._existing(station_id), connector_id, transaction_id=None, power_w=0.0,
                                       meter_start_wh=None)
             self._put(replace(station, last_seen=now))
@@ -128,19 +127,13 @@ class FleetStore:
     def knows_transaction(self, tx_id: int) -> bool:
         return tx_id in self._transactions
 
-    def has_ended(self, tx_id: int) -> bool:
-        return tx_id in self._ended
-
-    def _remember_ended(self, tx_ids) -> None:
-        # Ids grow from the clock, so dropping the smallest keeps the most recent ones.
-        ended = self._ended | frozenset(tx_ids)
-        self._ended = frozenset(sorted(ended)[-ENDED_MEMORY:]) if len(ended) > ENDED_MEMORY else ended
-
     def adopt_transaction(self, station_id: str, connector_id: int, tx_id: int, now: float) -> bool:
         """Take over a transaction started before a CSMS restart (seen in MeterValues). Energy per session is
-        unknown for it. Returns False if the id is already known."""
+        unknown for it. Returns False if the id is already known or the connector says it isn't charging, so a late
+        reading from a closed session can't bring it back."""
         with self._lock:
-            if tx_id in self._transactions or tx_id in self._ended:
+            current = self._existing(station_id).connectors.get(connector_id, Connector())
+            if tx_id in self._transactions or current.transaction_id is not None or current.status not in MAY_CHARGE:
                 return False
             self._transactions = MappingProxyType({**self._transactions, tx_id: (station_id, connector_id)})
             station = _with_connector(self._existing(station_id), connector_id, transaction_id=tx_id, meter_start_wh=None)
@@ -156,7 +149,6 @@ class FleetStore:
             if not stale:
                 return []
             self._transactions = MappingProxyType({k: v for k, v in self._transactions.items() if k not in stale})
-            self._remember_ended(stale)
             station = self._existing(station_id)
             for cid, conn in station.connectors.items():
                 if conn.transaction_id in stale:
