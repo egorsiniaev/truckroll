@@ -24,7 +24,7 @@ jobs:
           output-file: sbom.cdx.json
 
       - name: Vulnerability scan (Grype)
-        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e # v6.5.1
+        uses: anchore/scan-action@11983a512817154c80a9db660c1a184be7513ed6 # v7.4.3
         with:
           sbom: sbom.cdx.json
           fail-build: true
