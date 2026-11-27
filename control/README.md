@@ -72,7 +72,9 @@ firmware rollback, free vend, taking a charger out of service, restarting a back
 visit. Each has a question, a reason, a default and a deadline (30-90 s). The page shows it as a callout on the map
 and at the top of the incidents strip. Approve, reject, or let the deadline pass: the default applies and the
 timeline says "no answer in time". Cheap, reversible steps stay automatic (status request, first soft reset,
-billing hold). The agent will plug into the same place: it proposes, a person decides.
+billing hold). The triage agent plugs into the same place: its suggestion becomes a question. Confident
+suggestions (70 % or more) default to yes, others to no; see [docs/agent.md](../docs/agent.md) for why, and
+why a real operator should not copy that.
 
 ## Service levels (`slo.py`)
 

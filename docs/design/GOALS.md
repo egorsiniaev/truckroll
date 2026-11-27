@@ -1,6 +1,9 @@
 # Goals
 
-Deadline: 2026-12-31. Budget: 40 hours to start, logged in [LOG.md](LOG.md).
+> Design note, written before the build. The code and [LOG.md](../../LOG.md) are the record of what exists; where they
+> differ from this page, they win.
+
+Deadline: 2026-12-31. Budget: 40 hours to start, logged in [LOG.md](../../LOG.md).
 
 ## 1. Learn the domain
 

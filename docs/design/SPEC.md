@@ -1,4 +1,7 @@
-# Charger fleet ops copilot
+# Charger fleet ops copilot: original spec
+
+> Design note, written before the build. The code and [LOG.md](../../LOG.md) are the record of what exists; where they
+> differ from this page, they win.
 
 Public GitHub repo + 2-minute video + one write-up. 2-3 weekends with Claude Code.
 
@@ -79,3 +82,4 @@ connectivity, firmware you can't hot-fix, physical faults), how long it took wit
 ## Guardrails
 
 - Low voltage only; nothing connects to a real EV or mains.
+- No secrets in the repo; keys come from environment variables.

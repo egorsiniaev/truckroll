@@ -1,5 +1,8 @@
 # Plan
 
+> Design note, written before the build. The code and [LOG.md](../../LOG.md) are the record of what exists; where they
+> differ from this page, they win.
+
 Goals: [GOALS.md](GOALS.md). Original spec: [SPEC.md](SPEC.md) (this plan supersedes its weekend plan).
 
 ## Architecture
@@ -82,7 +85,7 @@ is for style only (not committed).
 
 ## Milestones
 
-Hours are estimates; actuals go in [LOG.md](LOG.md).
+Hours are estimates; actuals go in [LOG.md](../../LOG.md).
 
 | Week | Dates | Output | Est. h | Done when |
 |---|---|---|---|---|
@@ -93,7 +96,7 @@ Hours are estimates; actuals go in [LOG.md](LOG.md).
 | 3-4 | when parts arrive | Device: MicroOcpp, lamp, ring, OLED, camera | 5 | setting 50% in the controller dims the lamp, live on camera |
 | 4 | Dec 14-20 | Triage agent + approval gate + eval run | 8 | eval table with real numbers |
 | 5 | Dec 21-27 | Public page on siniaev.dev, video, write-up | 6 | a stranger can trigger an incident and approve the fix |
-| 6 | Dec 28-31 | Buffer, make the repo public (ask first) | - | page live, numbers published |
+| 6 | Dec 28-31 | Buffer, make the repo public | - | page live, numbers published |
 
 Total ~43 h. If over budget, cut in this order: live visitor trigger -> replay of a recorded day; camera ->
 recorded clips; site battery and upstream PRs were never in.
