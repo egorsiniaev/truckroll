@@ -6,7 +6,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
-FROM python:3.12-slim-bookworm
+FROM python:3.15-slim-bookworm
 RUN useradd --system --uid 10001 csms
 WORKDIR /app
 COPY --from=build /app /app
