@@ -138,7 +138,6 @@ async def test_fleet_reports_energy_this_session(stack):
 
 async def test_trigger_asks_station_to_resend_status(stack):
     url, api, _ = stack
-    async with station(url) as cp:
+    async with station(url):
         res = await api.post(f"/stations/{STATION}/trigger", json={"message": "StatusNotification"})
-        body = (await api.get("/fleet")).json()
     assert res.json()["status"] == "Accepted"

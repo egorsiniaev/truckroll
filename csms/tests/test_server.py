@@ -2,13 +2,14 @@ import asyncio
 import contextlib
 
 import pytest
-from ocpp.v16 import ChargePoint as ClientChargePoint
 from ocpp.routing import on
+from ocpp.v16 import ChargePoint as ClientChargePoint
 from ocpp.v16 import call, call_result
 from ocpp.v16.enums import Action, AuthorizationStatus, RegistrationStatus, TriggerMessageStatus
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from websockets.asyncio.client import connect
+from websockets.exceptions import WebSocketException
 
 from csms.auth import TagList
 from csms.fleet import FleetStore
@@ -164,7 +165,7 @@ async def test_connector_status_gauge_reports_current_status_only(server, reader
 
 
 async def test_connection_without_ocpp16_subprotocol_is_refused(server, fleet):
-    with pytest.raises(Exception):
+    with pytest.raises(WebSocketException):
         async with connect(f"{server}/{STATION}") as ws:
             await ws.recv()
     assert fleet.get(STATION) is None

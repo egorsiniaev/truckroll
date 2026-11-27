@@ -1,4 +1,3 @@
-import pytest
 
 from control.limits import LimitArbiter
 from control.world import COLD_DERATE, FLAT_SHARE, STORM_LATENCY_MS, WorldEngine, demand_share, solar_w, weather_rules

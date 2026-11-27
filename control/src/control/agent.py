@@ -329,7 +329,7 @@ SUMMARY_CACHE_S = 600
 SUMMARY_MIN_GAP_S = 60  # at most one new summary call a minute, whoever is visiting
 
 
-async def summarize(agent: "TriageAgent", facts: dict) -> list[str] | None:
+async def summarize(agent: TriageAgent, facts: dict) -> list[str] | None:
     """One cheap call per distinct set of facts, cached for 10 minutes, counted against the agent's caps.
     Never returns text written from other facts: when a new call isn't allowed, there is no AI summary."""
     now = agent.clock()

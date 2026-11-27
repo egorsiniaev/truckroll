@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 class Step:
     at_s: float
     text: str
-    action: Callable[["Ctx"], Awaitable[None]]
+    action: Callable[[Ctx], Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -29,8 +29,8 @@ class Scenario:
     description: str
     root_cause: str
     duration_s: float
-    plan: Callable[["Ctx"], list[Step]]
-    cleanup: Callable[["Ctx"], Awaitable[None]]
+    plan: Callable[[Ctx], list[Step]]
+    cleanup: Callable[[Ctx], Awaitable[None]]
     icon: str = "⚠️"
     sites: tuple[str, ...] = ()  # where it happens; picked stations are added at run time
 

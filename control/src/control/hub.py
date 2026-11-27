@@ -15,9 +15,8 @@ from control.autopilot import Autopilot
 from control.battery import BatteryFleet
 from control.clients import CsmsClient, SimulatorClient, ToxiproxyClient, UpstreamError, WeatherClient
 from control.controller import SiteController
-from control.decisions import DecisionBook
-from control.slo import SloTracker
 from control.daylight import daylight
+from control.decisions import DecisionBook
 from control.demand import DemandEngine
 from control.economics import Economics, demand_factor
 from control.fieldservice import FieldService
@@ -26,6 +25,7 @@ from control.limits import SOURCE_LABELS, LimitArbiter
 from control.persist import Clocks
 from control.prices import PriceClient, PriceError, summarize
 from control.scenarios import Ledger, Runner
+from control.slo import SloTracker
 from control.state import build_snapshot, detect_events, group_events
 from control.uptime import UptimeTracker
 from control.world import WorldEngine, solar_w

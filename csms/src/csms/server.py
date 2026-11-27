@@ -9,7 +9,6 @@ from http import HTTPStatus
 
 from ocpp.v16 import call
 from ocpp.v16.enums import MessageTrigger
-
 from websockets.asyncio.server import Server, ServerConnection
 from websockets.asyncio.server import serve as ws_serve
 from websockets.exceptions import ConnectionClosed

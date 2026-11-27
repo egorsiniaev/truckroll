@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from control.decisions import DecisionBook
 from control.incident_rules import AUTH_SLOW_S, DRIFT_MIN_S, OVER_LIMIT_S, RECOVER_AFTER_S
 from control.incidents import IncidentManager
-from control.slo import CAP_VIOLATION_S, SloTracker
+from control.slo import SloTracker
 from control.uptime import UptimeTracker
 
 

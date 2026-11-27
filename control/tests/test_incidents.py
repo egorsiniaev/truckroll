@@ -1,5 +1,10 @@
-from control.incidents import (FAULT_RESET_AFTER_S, STATION_OFFLINE_AFTER_S, TRUCK_ROLL_AFTER_RESET_S,
-                               VERIFY_AFTER_FIX_S, IncidentManager)
+from control.incidents import (
+    FAULT_RESET_AFTER_S,
+    STATION_OFFLINE_AFTER_S,
+    TRUCK_ROLL_AFTER_RESET_S,
+    VERIFY_AFTER_FIX_S,
+    IncidentManager,
+)
 
 
 class Csms:

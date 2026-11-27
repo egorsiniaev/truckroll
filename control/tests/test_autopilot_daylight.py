@@ -26,7 +26,7 @@ def test_autopilot_waits_runs_and_never_repeats_back_to_back():
         t[0] += MAX_GAP_S + 1
         ap.tick([{"id": "x"}])
     assert len(runner.started) == 4
-    assert all(a != b for a, b in zip(runner.started, runner.started[1:]))
+    assert all(a != b for a, b in zip(runner.started, runner.started[1:], strict=False))
 
 
 def test_autopilot_off_or_busy_does_nothing():

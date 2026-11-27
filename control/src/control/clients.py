@@ -104,7 +104,7 @@ class SimulatorClient:
                     msg = json.loads(raw)
                     if isinstance(msg, list) and msg and msg[0] == request_id:
                         return msg[1]
-        except (OSError, TimeoutError, asyncio.TimeoutError) as exc:
+        except (OSError, TimeoutError) as exc:
             raise UpstreamError(f"simulator {procedure}: {exc.__class__.__name__}") from exc
         except Exception as exc:  # websockets raises its own hierarchy
             raise UpstreamError(f"simulator {procedure}: {exc}") from exc

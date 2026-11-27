@@ -72,7 +72,7 @@ class Session:
     delivered_wh: float = 0.0  # last known, kept for when the session ends and the connector moves on
 
 
-def delivered(sess: "Session", conn: Mapping | None) -> float:
+def delivered(sess: Session, conn: Mapping | None) -> float:
     """Energy this session has delivered. The CSMS's per-session figure first: it knows the meter reading at
     StartTransaction. The register fallback rebases when the register restarts (these chargers count per session),
     because the reading seen when a session appears may still be the previous session's."""

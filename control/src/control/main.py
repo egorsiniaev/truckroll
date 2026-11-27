@@ -10,9 +10,9 @@ from pathlib import Path
 import httpx
 import uvicorn
 
+from control.agent import TriageAgent
 from control.app import Clients, Hub, create_app
 from control.clients import CsmsClient, SimulatorClient, ToxiproxyClient, WeatherClient
-from control.agent import TriageAgent
 from control.prices import PriceClient
 
 
