@@ -6,6 +6,5 @@
 - Copy rules: no em dashes, curly apostrophes, stop-words glued to the next word with a non-breaking space.
 - Preview: open `truckroll/index.html` in a browser.
 
-This is the only copy of the page. Fixes go here; siniaev.dev publishes it with
-`scripts/publish_page.py truckroll ~/projects/truckroll/site/truckroll`, and nobody edits
-`public/truckroll/` there by hand.
+This is the only copy of the page. Fixes go here; the siniaev.dev site publishes it from a given commit and adds
+its own navigation and metadata.
