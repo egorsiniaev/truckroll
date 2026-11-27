@@ -166,9 +166,10 @@ async def test_meta_lists_scenarios_and_world_toggle_works(ctx):
 async def test_scenario_start_conflict_unknown_and_stop(ctx):
     client, clients, hub = ctx
     assert (await client.post("/api/scenarios/nope/start")).status_code == 404
-    res = await client.post("/api/scenarios/site-drop/start")
-    assert res.json()["result"]["running"]["id"] == "site-drop"
-    assert (await client.post("/api/scenarios/storm-a2/start")).status_code == 409
+    # storm-a2 targets the fixture's only site; site-drop (AMS-DEPOT) would crash in the background
+    res = await client.post("/api/scenarios/storm-a2/start")
+    assert res.json()["result"]["running"]["id"] == "storm-a2"
+    assert (await client.post("/api/scenarios/site-drop/start")).status_code == 409
     stopped = await client.post("/api/scenarios/stop")
     assert stopped.json()["result"] == {"running": None}
 

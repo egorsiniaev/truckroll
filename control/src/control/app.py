@@ -11,11 +11,12 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from control.clients import UpstreamError
+from control.guard import Guard, client_ip
 from control.hub import Clients, Hub  # noqa: F401 - re-exported for main and tests
 from control.metrics import metrics_text
 
@@ -58,7 +59,7 @@ class ToggleRequest(BaseModel):
         return bool(self.enabled if self.enabled is not None else self.on)
 
 
-def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> FastAPI:
+def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True, guard: Guard | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         task = asyncio.create_task(hub.run()) if start_poller else None
@@ -69,6 +70,15 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
 
     app = FastAPI(title="truckroll-control", lifespan=lifespan, docs_url="/api/docs", redoc_url=None)
     sites_by_code = {s["code"]: s for s in hub.sites}
+    guard = guard or Guard()
+
+    @app.middleware("http")
+    async def rate_limit(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/") and path != "/api/healthz" and not guard.allow_request(request.method, client_ip(request)):
+            return JSONResponse({"detail": "too many requests, try again in a minute"}, status_code=429,
+                                headers={"Retry-After": str(int(guard.limits.window_s))})
+        return await call_next(request)
 
     def site_or_404(code: str) -> dict:
         if code not in sites_by_code:
@@ -218,10 +228,17 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True) -> Fas
 
     @app.get("/api/stream")
     async def stream(request: Request):
+        ip = client_ip(request)
+        if not guard.open_stream(ip):
+            raise HTTPException(429, "too many open live views")
+
         async def events() -> AsyncIterator[str]:
-            while not await request.is_disconnected():
-                yield f"data: {json.dumps(hub.snapshot)}\n\n"
-                await asyncio.sleep(STREAM_EVERY_S)
+            try:
+                while not await request.is_disconnected():
+                    yield f"data: {json.dumps(hub.snapshot)}\n\n"
+                    await asyncio.sleep(STREAM_EVERY_S)
+            finally:
+                guard.close_stream(ip)
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
 

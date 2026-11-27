@@ -4,6 +4,8 @@ Sits between the web page and the moving parts. Polls the CSMS admin API and Tox
 Open-Meteo weather every 10 min, and streams one snapshot to every page over SSE. Serves the page from `web/`.
 
 No auth: on the public server anyone can watch and use the control panel (it only drives the simulation).
+Abuse limits instead (`guard.py`): per visitor 20 changes and 120 API reads a minute, 200 changes a minute for
+everyone together, and at most 4 live views per visitor (200 in total). Over the limit the API answers 429.
 
 | Endpoint | Does |
 |---|---|
