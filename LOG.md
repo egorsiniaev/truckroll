@@ -49,3 +49,12 @@ second, the demand engine saw the car as full and stopped it. A2-HUB and UTR-RET
 arrivals per hour; UTR-RETAIL counted 1,918 completed sessions for 326 starts. The previous fix (use the CSMS
 per-session figure) moved the same stale-baseline mistake into the CSMS: third time for this bug. Fixed: a new
 session's reading starts at its own meter start, with a test.
+
+## 2026-11-27: cars queued at A2-HUB next to free chargers
+Three A2-HUB chargers showed Available but still carried a transaction, so the demand engine never used them (and
+never took them over, because they said Available). Cause: the simulator keeps sending MeterValues for a session
+after reporting Available; the CSMS closed the transaction, then read the late reading as a session from before a
+CSMS restart and took it over again. My first fix (never take over a closed transaction) broke restart recovery: after
+a restart the CSMS asks every charger to boot, that boot closes all transactions, and 10 sessions that were still
+charging could no longer be taken back. Final fix: take over an unknown transaction only while the charger reports
+it may be charging, and drop readings for transactions the connector doesn't own. Tests for both cases.
