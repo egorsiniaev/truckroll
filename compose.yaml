@@ -97,14 +97,15 @@ services:
     image: grafana/grafana:13.3.1
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      # Viewer unless you ask for more locally: GRAFANA_ANON_ROLE=Admin docker compose up -d
+      GF_AUTH_ANONYMOUS_ORG_ROLE: ${GRAFANA_ANON_ROLE:-Viewer}
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      # Localhost only: anonymous admin is fine on a laptop, never on a server.
+      # Localhost only; on the server Caddy is the way in.
       - "127.0.0.1:3000:3000"
     depends_on: [prometheus, loki]
     restart: unless-stopped

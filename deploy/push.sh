@@ -3,7 +3,7 @@
 # Builds only our own services, without attestations (they change the image ID on every build and force a restart):
 # rebuilding the simulator would restart it and cut every charging session.
 set -euo pipefail
-HOST="${TRUCKROLL_SERVER:-root@142.132.244.71}"
+HOST="${TRUCKROLL_SERVER:?set TRUCKROLL_SERVER, e.g. deploy@your-server}"
 cd "$(dirname "$0")/.."
 rsync -az --delete --exclude .git --exclude '.env*' --exclude .venv --exclude node_modules --exclude .pio \
   --exclude __pycache__ --exclude .pytest_cache --exclude observability/data ./ "$HOST:/opt/truckroll/"
