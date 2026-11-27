@@ -13,17 +13,18 @@ jobs:
   sbom-and-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to commit SHAs: a tag can be moved, a SHA can't. Dependabot keeps them current.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Generate CycloneDX SBOM (Syft)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
         with:
           path: .
           format: cyclonedx-json
           output-file: sbom.cdx.json
 
       - name: Vulnerability scan (Grype)
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e # v6.5.1
         with:
           sbom: sbom.cdx.json
           fail-build: true
