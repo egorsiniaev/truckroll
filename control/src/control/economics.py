@@ -91,6 +91,11 @@ class Ledger:
     cost_eur: float = 0.0
     lost_eur: float = 0.0
     service_eur: float = 0.0  # technician visits
+    visits: int = 0
+    # Lost revenue by cause; not part of margin (money never earned, not money spent).
+    lost_diverted_eur: float = 0.0  # saw the wait in the app and went elsewhere
+    lost_abandoned_eur: float = 0.0  # gave up in the queue
+    lost_interrupted_eur: float = 0.0  # session cut short: fault, reset, outage
 
     @property
     def margin_eur(self) -> float:
@@ -148,15 +153,21 @@ class Economics:
     def service(self, code: str, eur: float) -> None:
         if code in self.today:
             self.today[code].service_eur += eur
+            self.today[code].visits += 1
 
-    def lost(self, code: str, kwh: float, prices: Mapping | None) -> None:
+    def lost(self, code: str, kwh: float, prices: Mapping | None, why: str = "") -> None:
         if code in self.today:
-            self.today[code].lost_eur += kwh * self.tariffs(prices)[code]
+            eur = kwh * self.tariffs(prices)[code]
+            led = self.today[code]
+            led.lost_eur += eur
+            if why in ("diverted", "abandoned", "interrupted"):
+                setattr(led, f"lost_{why}_eur", getattr(led, f"lost_{why}_eur") + eur)
 
     def summary(self) -> dict:
         total = Ledger()
         for led in self.today.values():
-            for k in ("energy_kwh", "solar_kwh", "grid_kwh", "revenue_eur", "cost_eur", "lost_eur", "service_eur"):
+            for k in ("energy_kwh", "solar_kwh", "grid_kwh", "revenue_eur", "cost_eur", "lost_eur", "service_eur",
+                      "visits", "lost_diverted_eur", "lost_abandoned_eur", "lost_interrupted_eur"):
                 setattr(total, k, getattr(total, k) + getattr(led, k))
         return {"dynamic": self.dynamic, "day": self.day, "fleet": total.to_json(),
                 "sites": {c: {**led.to_json(), **self.rates.get(c, {})} for c, led in self.today.items()}}

@@ -106,14 +106,14 @@ class SiteDemand:
 
 class DemandEngine:
     def __init__(self, sites: list[dict], clients, id_tags: list[str], rng: random.Random | None = None,
-                 clock: Callable[[], float] = time.monotonic, on_lost: Callable[[str, float], None] | None = None,
+                 clock: Callable[[], float] = time.monotonic, on_lost: Callable[[str, float, str], None] | None = None,
                  blocked: Callable[[], set[str]] | None = None) -> None:
         self.sites = {s["code"]: s for s in sites}
         self.clients = clients
         self.id_tags = id_tags or ["TR-0001"]
         self.rng = rng or random.Random()
         self.clock = clock
-        self.on_lost = on_lost or (lambda site, kwh: None)
+        self.on_lost = on_lost or (lambda site, kwh, why: None)
         self.blocked = blocked or set  # stations out for maintenance; the simulator won't refuse a start on them
         self.state = {code: SiteDemand() for code in self.sites}
         self.rates: dict[str, float] = {}
@@ -229,7 +229,7 @@ class DemandEngine:
                 need = self.rng.uniform(*prof.need_kwh) * 1000
                 if divert and self.rng.random() < divert:
                     st.diverted += 1
-                    self.on_lost(code, need / 1000)
+                    self.on_lost(code, need / 1000, "diverted")
                     continue
                 st.queue.append(Car(next(self._ids), code, need, now,
                                     self.rng.uniform(*prof.patience_min) * 60, self.rng.choice(self.id_tags)))
@@ -268,7 +268,7 @@ class DemandEngine:
                     st.completed += 1
                 else:
                     st.interrupted += 1
-                    self.on_lost(code, max(0.0, sess.car.need_wh - got) / 1000)
+                    self.on_lost(code, max(0.0, sess.car.need_wh - got) / 1000, "interrupted")
                 continue
             if delivered(sess, conn) >= sess.car.need_wh:
                 try:
@@ -308,7 +308,7 @@ class DemandEngine:
         for car in gone:
             st.queue.remove(car)
             st.abandoned += 1
-            self.on_lost(code, car.need_wh / 1000)
+            self.on_lost(code, car.need_wh / 1000, "abandoned")
         if gone:
             return [f"{code}: {len(gone)} driver{'s' if len(gone) > 1 else ''} gave up waiting and left"]
         return []

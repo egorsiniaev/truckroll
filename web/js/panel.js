@@ -130,8 +130,9 @@ export function renderSite(root, site, snapshot, ctx) {
       <tr><td>Energy cost now (spot + fees)</td><td>€${(money.buy_eur_kwh ?? 0).toFixed(2)}/kWh</td></tr>
       <tr><td>Sold ${(money.energy_kwh ?? 0).toFixed(0)}${NB}kWh (${(money.solar_kwh ?? 0).toFixed(0)} from solar)</td><td>${eur(money.revenue_eur)}</td></tr>
       <tr><td>Bought ${(money.grid_kwh ?? 0).toFixed(0)}${NB}kWh from the grid</td><td>${eur(-(money.cost_eur ?? 0))}</td></tr>
+      ${money.service_eur ? `<tr><td>Technician visits (${money.visits ?? 0} × €150)</td><td>${eur(-money.service_eur)}</td></tr>` : ""}
       <tr class="total"><td>Margin</td><td class="${(money.margin_eur ?? 0) < 0 ? "neg" : "pos"}">${eur(money.margin_eur)}</td></tr>
-      <tr><td class="muted">Lost to waits and interruptions</td><td class="muted">${eur(money.lost_eur)}</td></tr>
+      <tr><td class="muted">Sales lost (not in&nbsp;margin): cut off ${eur(money.lost_interrupted_eur)}, gave up ${eur(money.lost_abandoned_eur)}, went elsewhere ${eur(money.lost_diverted_eur)}</td><td class="muted">${eur(money.lost_eur)}</td></tr>
     </table>
     <h4>Real-world rules here</h4>
     ${rulesList(site.rules)}
@@ -257,11 +258,39 @@ function agentRow(a) {
     <button class="switch ${a.enabled ? "on" : ""}" data-act="agent" aria-label="AI triage agent"></button></div>`;
 }
 
+function marginWhy(f) {
+  const energy = (f.revenue_eur ?? 0) - (f.cost_eur ?? 0);
+  const visits = f.service_eur ?? 0;
+  const n = f.visits ?? Math.round(visits / 150);
+  const v = `${n} technician visit${n === 1 ? "" : "s"} (${eur(visits)})`;
+  if ((f.margin_eur ?? 0) >= 0) return `Positive: charging earned ${eur(energy)} after energy${visits ? `, and&nbsp;${v} took part of&nbsp;it` : ""}.`;
+  if (energy < 0) return `Negative because energy cost ${eur(-energy)} more than charging earned${visits ? `, plus ${v}` : ""}.`;
+  return `Negative because ${v} cost more than charging earned after energy (${eur(energy)}). Visits come from incidents that a&nbsp;remote reset couldn’t fix.`;
+}
+
+function marginBreakdown(f) {
+  if (!f) return "";
+  const unsplit = (f.lost_eur ?? 0) - (f.lost_interrupted_eur ?? 0) - (f.lost_abandoned_eur ?? 0) - (f.lost_diverted_eur ?? 0);
+  const lostRow = (label, v) => `<tr><td class="muted">${label}</td><td class="muted">${eur(v)}</td></tr>`;
+  return `<p><b>${marginWhy(f)}</b></p>
+    <table class="money">
+      <tr><td>Charging sales (${(f.energy_kwh ?? 0).toFixed(0)}${NB}kWh)</td><td>${eur(f.revenue_eur)}</td></tr>
+      <tr><td>Grid energy (${(f.grid_kwh ?? 0).toFixed(0)}${NB}kWh, spot + fees)</td><td>${eur(-(f.cost_eur ?? 0))}</td></tr>
+      <tr><td>Technician visits (${f.visits ?? 0} × €150)</td><td>${eur(-(f.service_eur ?? 0))}</td></tr>
+      <tr class="total"><td>Margin</td><td class="${(f.margin_eur ?? 0) < 0 ? "neg" : "pos"}">${eur(f.margin_eur)}</td></tr>
+      <tr><td colspan="2" style="text-align:left"><b>Not in&nbsp;the&nbsp;margin: ${eur(f.lost_eur)} of&nbsp;sales lost</b></td></tr>
+      ${lostRow("Cut off mid-session by&nbsp;a&nbsp;fault, reset or&nbsp;outage", f.lost_interrupted_eur)}
+      ${lostRow("Gave up waiting in&nbsp;the&nbsp;queue", f.lost_abandoned_eur)}
+      ${lostRow("Saw the&nbsp;wait in&nbsp;the&nbsp;app and&nbsp;went elsewhere", f.lost_diverted_eur)}
+      ${unsplit > 0.5 ? lostRow("Earlier today, before causes were recorded", unsplit) : ""}
+    </table>`;
+}
+
 function fleetMoney(snapshot) {
   const f = snapshot.economics?.fleet;
   if (!f) return "";
   return `<div class="row"><div class="what"><b>Today: ${eur(f.margin_eur)} margin</b>
-    <span>${eur(f.revenue_eur)} sold, ${eur(f.cost_eur)} energy cost, ${eur(f.lost_eur)} lost to waits</span></div></div>`;
+    <span>${eur(f.revenue_eur)} sold, ${eur(f.cost_eur)} energy, ${eur(f.service_eur)} on&nbsp;${f.visits ?? 0} technician visits; ${eur(f.lost_eur)} of&nbsp;sales lost to&nbsp;incidents and&nbsp;queues</span></div></div>`;
 }
 
 export function renderControls(root, snapshot, meta) {
@@ -365,8 +394,16 @@ const KPI_INFO = {
   },
   margin: {
     title: "Margin today",
-    what: "Revenue from charging minus the cost of grid energy and technician visits, since local midnight (or service start). Solar is free.",
-    rows: (s) => s.sites.map((x) => [x.code, eur(x.economics?.margin_eur), `lost ${eur(x.economics?.lost_eur)}`]),
+    what: [
+      ["What margin is", "Charging sales minus the cost of grid energy and technician visits, since local midnight (or service start). Solar is free."],
+      ["Technician visits", "€150 each. Sent when a fault comes back after a remote reset, a charger stays offline for 10 min, or the AI agent is sure one is needed. These are questions that go ahead when nobody answers, so on a day with many incidents they add up fast."],
+      ["Lost revenue", "Money never earned, so it is not subtracted from the margin. It is why sales are lower than they could be. Incidents drive most of it: a faulted, offline, rebooting or updating charger can't serve, so cars queue, give up or go elsewhere."],
+    ],
+    extra: (s) => marginBreakdown(s.economics?.fleet),
+    rows: (s) => s.sites.map((x) => {
+      const e = x.economics || {};
+      return [x.code, eur(e.margin_eur), e.visits ? `${e.visits} visit${e.visits > 1 ? "s" : ""} (${eur(-e.service_eur)})` : "no visits", `lost ${eur(e.lost_eur)}`];
+    }),
     value: (s) => eur(s.economics?.fleet?.margin_eur),
   },
   incidents: {

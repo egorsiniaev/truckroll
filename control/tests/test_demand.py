@@ -37,7 +37,7 @@ def engine():
     t = [0.0]
     lost = []
     eng = DemandEngine([SITE], Clients(), ["TAG"], rng=random.Random(3), clock=lambda: t[0],
-                       on_lost=lambda site, kwh: lost.append((site, kwh)))
+                       on_lost=lambda site, kwh, why: lost.append((site, kwh)))
     eng._warm = True  # tests drive arrivals explicitly
     return eng, t, lost
 

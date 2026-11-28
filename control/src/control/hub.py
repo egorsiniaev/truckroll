@@ -112,7 +112,7 @@ class Hub:
                                         self.ledger_path.with_name("firmware.jsonl") if self.ledger_path else None,
                                         on_event=self._fw_events.append)
         self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
-                                   on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices),
+                                   on_lost=lambda site, kwh, why: self.economics.lost(site, kwh, self.prices, why),
                                    blocked=lambda: set(self.firmware.installs))
         self.incidents.firmware = self.firmware
         self.outages = OutagePlanner([s["code"] for s in self.sites], self.runner, self._lost_today)

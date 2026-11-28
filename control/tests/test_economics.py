@@ -73,3 +73,14 @@ def test_battery_charging_adds_and_discharging_removes_grid_energy():
     assert econ.summary()["sites"]["A2-HUB"]["grid_kwh"] == 60
     econ.accrue([{"code": "A2-HUB", "power_w": 0, "battery": {"power_w": 50_000}}], CALM, 3600, now)
     assert econ.summary()["sites"]["A2-HUB"]["grid_kwh"] == 110
+
+
+def test_lost_revenue_and_visits_are_split_by_cause():
+    econ = Economics([HUB], dynamic=False)
+    econ.accrue([{"code": "A2-HUB", "power_w": 0}], None, 1, datetime(2026, 11, 24, 12, tzinfo=UTC))
+    econ.lost("A2-HUB", 10, None, "interrupted")
+    econ.lost("A2-HUB", 20, None, "diverted")
+    econ.service("A2-HUB", 150)
+    f = econ.summary()["fleet"]
+    assert f["lost_interrupted_eur"] == pytest.approx(6.9) and f["lost_diverted_eur"] == pytest.approx(13.8)
+    assert f["lost_eur"] == pytest.approx(20.7) and f["visits"] == 1 and f["margin_eur"] == -150
