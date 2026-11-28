@@ -17,14 +17,18 @@ incident engine with people in the loop, and an AI triage agent that is scored a
   each site behind its own [Toxiproxy](https://github.com/Shopify/toxiproxy) so its network can drop, lag or flap.
 - **Backend (CSMS):** a thin OCPP 1.6J server on [mobilityhouse/ocpp](https://github.com/mobilityhouse/ocpp) with OpenTelemetry metrics and logs.
 - **Energy and drivers:** grid caps, a site controller, batteries, ENTSO-E day-ahead prices, Open-Meteo weather,
-  arrivals, queues and driver patience, revenue and margin.
+  arrivals, queues and driver patience, revenue and margin. Weekends and Dutch public holidays have their own demand.
+- **Firmware:** a new release every hour (patch hourly, minor every 6 h, major on Mondays at 03:00), installed only on
+  free chargers, a quarter of a site at a time. Some installs fail and roll back; a release that fails too often
+  becomes a question to halt it and roll the fleet back.
 - **Incidents:** 13 scripted fault scenarios plus weather-triggered ones. The incident engine never sees the
   scenario; it detects, responds, verifies and recovers from what an operator would see.
 - **People in the loop:** risky steps (reset a charging car, send a technician, free vend) become questions with a
   deadline and a stated default.
 - **AI triage:** one Gemini call per incident, read-only queries when unsure, scored against a hidden ledger.
 - **Reports:** post-mortems and NIS2 / CRA notification drafts. Rules decide which regime applies; a person approves;
-  nothing is ever sent.
+  nothing is ever sent. A daily NIS2 / CRA report (no AI) covers significant incidents, a 30 min area outage at one
+  site each day and what it cost, and the firmware rollout: security fixes, time to patch, failed updates, rollbacks.
 - **Observability:** OpenTelemetry collector, Prometheus, Loki and a Grafana dashboard generated from code.
 
 ## Results
@@ -102,7 +106,7 @@ docker compose down            # add -v to drop stored metrics, logs and state
 
 ```bash
 cd csms && uv run pytest       # 41 tests, 84 % coverage
-cd control && uv run pytest    # 141 tests, 85 % coverage
+cd control && uv run pytest    # 166 tests, 86 % coverage
 uvx ruff check src tests       # in either service
 ```
 

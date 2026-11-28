@@ -3,6 +3,7 @@ import { esc, post, toast } from "./panel.js";
 
 const NB = " ";
 const list = document.getElementById("incident-list");
+const dailyList = document.getElementById("daily-list");
 const detail = document.getElementById("detail");
 const only = document.getElementById("only-reportable");
 let rows = [];
@@ -107,7 +108,78 @@ async function open(id) {
   });
 }
 
+// ---- daily NIS2 / CRA report -------------------------------------------------------------
+const eur = (v) => (v == null ? "–" : `€${Math.round(v).toLocaleString()}`);
+const pct = (v) => (v == null ? "–" : `${(v * 100).toFixed(1)}${NB}%`);
+const verdict = (v) => `<span class="rp-pill ${v === "reportable" ? "bad" : "ok"}">${esc(v)}</span>`;
+
+async function loadDaily() {
+  const { days } = await (await fetch("/api/daily")).json();
+  dailyList.innerHTML = days.map((d) => `<li data-day="${esc(d.day)}" class="dl-row ${current === `day:${d.day}` ? "active" : ""}">
+    <b>${esc(dayLabel(`${d.day}T12:00:00`))}${d.preliminary ? " (so&nbsp;far)" : ""}</b>
+    <span>${d.nis2 === "reportable" ? '<span class="badge nis2">NIS2</span>' : ""}${d.cra === "reportable" ? '<span class="badge nis2">CRA</span>' : ""}${d.nis2 !== "reportable" && d.cra !== "reportable" ? '<span class="badge ok">nothing to report</span>' : ""}</span>
+    <span class="muted">${esc(d.day)}</span></li>`).join("") || `<li class="muted">No daily reports yet.</li>`;
+  dailyList.querySelectorAll("[data-day]").forEach((li) => { li.onclick = () => openDaily(li.dataset.day); });
+}
+
+function deadlines(d) {
+  return d && d.early_warning ? `<br>Early warning ${left(d.early_warning)}<br>Notification ${left(d.notification)}<br>Final report ${left(d.final_report)}` : "";
+}
+
+function nis2Html(n) {
+  const a = n.area_outage, f = n.financial, p = n.patching;
+  return `<div class="regime ${n.verdict === "reportable" ? "applies" : ""}"><b>NIS2 (Cyberbeveiligingswet)</b> ${verdict(n.verdict)}
+      <span class="muted">${n.incidents} incidents, ${n.significant.length} significant</span></div>
+    ${n.significant.map((x) => `<div class="regime applies"><b>${esc(x.title)}</b> <span class="muted">${esc(x.id)} · ${esc(x.why)}</span>${deadlines(x.deadlines)}</div>`).join("")}
+    <h4>Area outage</h4>
+    ${a ? `<p>${esc(a.site)} without power and&nbsp;line from ${time(a.started)} to&nbsp;${a.ended ? time(a.ended) : "now"} (${Math.round(a.minutes)}${NB}min).
+      Lost revenue about <b>${eur(a.loss_eur)}</b> from drivers turned away, giving up or&nbsp;cut&nbsp;off.
+      ${a.incident_id ? `Incident <a href="?incident=${encodeURIComponent(a.incident_id)}">${esc(a.incident_id)}</a>.` : ""} ${a.note ? `<span class="muted">${esc(a.note)}</span>` : ""}</p>`
+      : `<p class="muted">No area outage on this&nbsp;day.</p>`}
+    <h4>Money and&nbsp;service</h4>
+    <div class="rp-metrics"><span class="rp-metric"><span>lost revenue (day)</span><b>${eur(f.lost_revenue_eur)}</b></span>
+      <span class="rp-metric"><span>technician visits</span><b>${eur(f.field_service_eur)}</b></span>
+      <span class="rp-metric"><span>revenue</span><b>${eur(f.revenue_eur)}</b></span>
+      <span class="rp-metric"><span>uptime</span><b>${pct(n.uptime)}</b></span></div>
+    <h4>Patch management (Art.&nbsp;21: vulnerability handling)</h4>
+    <div class="rp-metrics"><span class="rp-metric"><span>releases</span><b>${p.releases}</b></span>
+      <span class="rp-metric"><span>installs ok / failed</span><b>${p.installs_ok} / ${p.installs_failed}</b></span>
+      <span class="rp-metric"><span>success rate</span><b>${pct(p.success_rate)}</b></span>
+      <span class="rp-metric"><span>rollbacks</span><b>${p.rollbacks}</b></span>
+      <span class="rp-metric"><span>chargers out for&nbsp;updates</span><b>${Math.round(p.maintenance_min)}${NB}min</b></span></div>
+    ${p.halted.length ? `<p class="bad">Halted releases: ${p.halted.map(esc).join(", ")} (${p.reverted} chargers rolled back).</p>` : ""}`;
+}
+
+function craHtml(c) {
+  const fl = c.fleet;
+  return `<div class="regime ${c.verdict === "reportable" ? "applies" : ""}"><b>CRA (Cyber Resilience Act)</b> ${verdict(c.verdict)}
+      <span class="muted">${esc(c.why)}</span></div>
+    ${c.exploited.map((x) => `<div class="regime applies"><b>${esc(x.advisory)} in&nbsp;${esc(x.version)}</b> <span class="muted">actively exploited, ${esc(x.severity)}</span>${deadlines(x.deadlines)}</div>`).join("")}
+    <div class="rp-metrics"><span class="rp-metric"><span>on latest (${esc(fl.latest ?? "–")})</span><b>${fl.on_latest} of&nbsp;${fl.stations}</b></span>
+      <span class="rp-metric"><span>missing a&nbsp;security fix</span><b class="${fl.exposed ? "bad" : ""}">${fl.exposed}</b></span>
+      <span class="rp-metric"><span>failed updates</span><b>${c.updates.installs_failed}</b></span>
+      <span class="rp-metric"><span>rolled back</span><b>${c.updates.rollbacks}</b></span></div>
+    ${c.security_fixes.length ? `<h4>Security fixes</h4><table><tr><th>Advisory</th><th>Version</th><th>Severity</th><th>Chargers patched</th><th>Median time to&nbsp;patch</th></tr>
+      ${c.security_fixes.map((x) => `<tr><td>${esc(x.advisory)}${x.exploited ? ' <span class="badge nis2">exploited</span>' : ""}</td><td>${esc(x.version)}${x.halted ? ' <b class="bad">halted, rolled&nbsp;back</b>' : ""}</td><td>${esc(x.severity)}</td><td>${x.halted ? "0" : x.patched}</td><td>${x.median_min == null ? "–" : `${Math.round(x.median_min)}${NB}min`}</td></tr>`).join("")}</table>` : ""}
+    <h4>Releases</h4>
+    <ol class="rp-timeline">${c.releases.map((r) => `<li><time>${time(r.time)}</time><span class="step">${esc(r.version)}</span>
+      <span class="rp-actor">${esc(r.bump)}</span><p>${esc(r.notes)}${r.security ? ` · security fix ${esc(r.advisory)} (${esc(r.security)})` : ""}</p></li>`).join("") || '<li class="muted">None.</li>'}</ol>`;
+}
+
+async function openDaily(day) {
+  current = `day:${day}`;
+  renderList();
+  loadDaily();
+  const rep = await (await fetch(`/api/daily/${encodeURIComponent(day)}`)).json();
+  detail.innerHTML = `<h3>Daily NIS2 and&nbsp;CRA report, ${esc(day)}</h3>
+    <p class="meta">${rep.preliminary ? "So far today; the final version is&nbsp;written at&nbsp;23:55." : `Written ${fmt(rep.generated)}.`}
+      Built from rules and&nbsp;our own records; no&nbsp;AI. Truckroll never sends it.</p>
+    <p><b>${esc(rep.headline)}</b></p>
+    ${nis2Html(rep.nis2)}${craHtml(rep.cra)}`;
+}
+
 only.onchange = renderList;
+loadDaily().catch((e) => toast(`Failed: ${e.message}`, true));
 loadList().then(() => {
   const first = new URLSearchParams(location.search).get("incident");
   if (first) open(first);

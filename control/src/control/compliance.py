@@ -97,10 +97,12 @@ def _time_to_patch(events: list[Mapping], release: Mapping) -> list[float]:
 def cra(events: list[Mapping], versions: Mapping[str, str], releases: list[Mapping]) -> dict:
     shipped = [e for e in events if e["type"] == "release"]
     fixes = []
+    halted = {r["version"] for r in releases if r.get("status") == "halted"}
     for r in (e for e in shipped if e.get("security")):
         mins = _time_to_patch(events, r)
         fixes.append({"version": r["version"], "advisory": r["advisory"], "severity": r["security"],
                       "exploited": r["exploited"], "released": r["time"], "patched": len(mins),
+                      "halted": r["version"] in halted,
                       "median_min": statistics.median(mins) if mins else None,
                       "deadlines": _deadlines(_t(r["time"]), 14) if r["exploited"] else {}})
     exploited = [f for f in fixes if f["exploited"]]
@@ -129,7 +131,12 @@ def daily(day: str, incidents: list[Mapping], events: list[Mapping], outage: Map
     mine = [i for i in incidents if i.get("opened") and _t(i["opened"]).astimezone(TZ).strftime("%Y-%m-%d") == day]
     n, c = nis2(mine, outage, events, money, uptime), cra(events, versions, releases)
     return {"day": day, "generated": generated, "preliminary": preliminary, "nis2": n, "cra": c,
-            "headline": f"NIS2: {n['verdict']} ({len(n['significant'])} significant of {n['incidents']} incidents). "
-                        f"CRA: {c['verdict']} ({len(c['security_fixes'])} security fixes in {len(c['releases'])} "
-                        f"releases)."}
+            "headline": f"NIS2: {n['verdict']} ({len(n['significant'])} significant of "
+                        f"{_count(n['incidents'], 'incident')}). CRA: {c['verdict']} "
+                        f"({_count(len(c['security_fixes']), 'security fix', 'security fixes')} in "
+                        f"{_count(len(c['releases']), 'release')})."}
+
+
+def _count(n: int, one: str, many: str | None = None) -> str:
+    return f"{n} {one if n == 1 else many or one + 's'}"
 

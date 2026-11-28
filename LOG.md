@@ -58,3 +58,17 @@ CSMS restart and took it over again. My first fix (never take over a closed tran
 a restart the CSMS asks every charger to boot, that boot closes all transactions, and 10 sessions that were still
 charging could no longer be taken back. Final fix: take over an unknown transaction only while the charger reports
 it may be charging, and drop readings for transactions the connector doesn't own. Tests for both cases.
+
+## 2026-11-28: weekends, hourly firmware, daily NIS2/CRA report
+Weekends ran like weekdays: demand followed the hour only. Now Saturday, Sunday and Dutch public holidays have their
+own profiles (office closed, Saturday shopping peak, Sunday shops from 12, no commute, vans parked).
+
+Firmware rollout found two races in the live test, both by the coding agent. At startup the demand engine's warm
+start and the rollout picked the same free chargers in the same second, and the simulator starts a session on an
+Unavailable connector anyway, so two "installing" chargers were charging cars. Fix: the demand engine skips chargers
+being updated, and an install yields to a driver who plugged in at the same moment. Second: a scenario's fault
+cleanup forced an updating charger back to Available; the rollout now re-asserts out of service.
+
+Agent mistake: rebuilt with `docker compose up -d --build control`, which also recreated the simulator and cut every
+session three times. I first blamed the startup proxy cleanup for the all-site "lost contact" blips; wrong, it was
+the rebuild. Use `--no-deps` when rebuilding one service.

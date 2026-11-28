@@ -607,3 +607,7 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 .kpi-facts { margin: 8px 0 14px; font-size: 12.5px; }
 .kpi-facts dt { font-weight: 600; color: var(--ink); }
 .kpi-facts dd { margin: 1px 0 9px; color: #374151; line-height: 1.45; text-wrap: pretty; }
+
+.fw-sec { display: inline-block; font-size: 10px; font-weight: 700; padding: 0 6px; margin-left: 4px; border-radius: 99px;
+  background: #fef3c7; color: #92400e; }
+.fw-sec.bad { background: #fee2e2; color: #991b1b; }

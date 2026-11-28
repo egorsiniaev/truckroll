@@ -157,7 +157,7 @@ export function renderStation(root, st, site, meta, snapshot, ctx) {
   root.innerHTML = `
     <p class="meta"><a href="#" data-site>${esc(st.site)}</a></p>
     <h3>${esc(st.id)} ${pill(st.state)}</h3>
-    <p class="meta">${esc(st.vendor)} ${esc(st.model)} · firmware ${esc(st.firmware || "–")}</p>
+    <p class="meta">${esc(st.vendor)} ${esc(st.model)} · firmware ${esc(st.firmware || "–")}${st.firmware_job ? ` · <b class="warn">${st.firmware_job.phase === "installing" ? `installing ${esc(st.firmware_job.to)}` : `rolling back to&nbsp;${esc(st.firmware_job.to)}`}</b>` : ""}</p>
     ${incidents.map((i) => `<p class="meta bad">Open incident: ${esc(i.title)}</p>`).join("")}
     <div class="grid2">
       ${stat(kw(st.power_w), "power now")}
@@ -223,6 +223,29 @@ function sparkline(prices) {
     <line class="now" x1="${x(idx).toFixed(1)}" x2="${x(idx).toFixed(1)}" y1="0" y2="${H}"></line></svg>`;
 }
 
+const PHASE = { installing: "installing", rolling_back: "rolling back to", reverting: "reverting to" };
+
+function firmwareSection(fw, outage) {
+  if (!fw) return "";
+  const rel = (r) => {
+    const sec = r.security ? ` <span class="fw-sec ${r.exploited ? "bad" : ""}" title="Security fix ${esc(r.advisory)}">${r.exploited ? "exploited" : esc(r.security)}</span>` : "";
+    const state = r.status === "halted" ? '<b class="bad">halted</b>' : r.status === "rolling" ? '<b class="ok">rolling out</b>' : "superseded";
+    return `<tr><td><b>${esc(r.version)}</b>${sec}</td><td>${esc(r.bump)}</td><td>${state}</td>
+      <td title="installed / failed">${r.installed}${r.failed ? ` / <b class="bad">${r.failed}${NB}failed</b>` : ""}</td></tr>`;
+  };
+  const jobs = fw.installing || [];
+  const area = outage?.site ? `<div class="row"><div class="what"><b>Area outage today: ${esc(outage.site)}</b>
+      <span>${{ planned: `30${NB}min, planned around ${new Date(outage.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`, running: "running now: site without power and&nbsp;line", done: `done, lost about €${Math.round(outage.last?.loss_eur ?? 0)}`, skipped: "skipped today (service started late)" }[outage.state] ?? esc(outage.state)}</span></div></div>` : "";
+  const [top, count] = Object.entries(fw.versions || {}).sort((a, b) => b[1] - a[1])[0] ?? ["–", 0];
+  const rolling = fw.target && fw.target !== top ? ` · ${esc(fw.target)} on&nbsp;${fw.on_target}` : "";
+  return `<h4>Firmware</h4>
+    <div class="row"><div class="what"><b>${esc(top)} on&nbsp;${count} of&nbsp;${fw.stations} chargers${rolling}</b>
+      <span>new release every hour; only free chargers update, a&nbsp;quarter of&nbsp;a&nbsp;site at&nbsp;a&nbsp;time</span></div></div>
+    ${jobs.length ? `<ul class="active-rules">${jobs.map((j) => `<li>● ${esc(j.station)}: ${PHASE[j.phase] ?? esc(j.phase)}${NB}${esc(j.phase === "rolling_back" ? j.from : j.to)} (${mins(j.left_s)} left)</li>`).join("")}</ul>` : ""}
+    <table class="chaos">${(fw.releases || []).slice(0, 5).map(rel).join("")}</table>
+    ${area}`;
+}
+
 function agentRow(a) {
   if (!a) return `<div class="row"><div class="what"><b>AI triage agent</b><span>off: no Gemini key configured</span></div></div>`;
   const cost = a.free_tier ? `free tier (would be $${a.cost_usd_if_paid.toFixed(3)} paid)` : `$${a.cost_usd_if_paid.toFixed(3)} today`;
@@ -269,6 +292,7 @@ export function renderControls(root, snapshot, meta) {
       <button class="mini danger" data-act="stop-scenario" style="margin-top:6px">Stop and&nbsp;clean up</button></div>` : ""}
     ${(meta.scenarios || []).map((s) => `<div class="row scen ${run?.id === s.id ? "is-running" : ""}" title="${esc(s.description)}"><span class="scen-icon" aria-hidden="true">${esc(s.icon ?? "⚠️")}</span><div class="what"><b>${esc(s.title)}</b><span>${esc(s.description)}</span></div>
       <button class="mini" data-scenario="${esc(s.id)}" ${run ? "disabled" : ""}>Start</button></div>`).join("")}
+    ${firmwareSection(snapshot.firmware, snapshot.area_outage)}
     <h4>Network per site</h4>
     <table class="chaos">${snapshot.sites.map((s) => `<tr><td><b class="${s.network.enabled ? (s.network.latency_ms ? "warn" : "ok") : "bad"}">${esc(s.code)}</b></td>
       <td><button class="mini ${s.network.enabled ? "danger" : "primary"}" data-outage="${esc(s.code)}" data-on="${s.network.enabled}">${s.network.enabled ? "Cut" : "Restore"}</button></td>

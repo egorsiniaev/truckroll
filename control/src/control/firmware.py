@@ -168,9 +168,25 @@ class FirmwareManager:
             self.versions.setdefault(st["id"], FIRST_VERSION)
         self.maybe_cut()
         by_id = {s["id"]: s for s in stations}
+        await self._reconcile(by_id)
         for sid in [s for s, i in self.installs.items() if self.clock() >= i.ends]:
             await self._finish(self.installs[sid])
         await self._start_new(by_id)
+
+    async def _reconcile(self, by_id: Mapping[str, Mapping]) -> None:
+        """A driver who plugged in as the update began wins; anything else that put the charger back in service
+        (a scenario clearing faults) is undone."""
+        for sid, inst in list(self.installs.items()):
+            conns = (by_id.get(sid) or {}).get("connectors", [])
+            if not (by_id.get(sid) or {}).get("connected"):
+                continue
+            if inst.phase in ("installing", "reverting") and any(c.get("transaction_id") for c in conns):
+                if await self._back_in(sid):
+                    del self.installs[sid]  # a pending revert stays queued for when the charger is free
+                    self._emit({"type": "install_cancelled", "station": sid, "site": inst.site, "to": inst.target,
+                                "text": f"{sid}: update to {inst.target} postponed, a driver started charging"})
+            elif any(c["status"] == "Available" for c in conns):
+                await self._take_out(sid)
 
     def _free(self, st: Mapping) -> bool:
         conns = st.get("connectors", [])

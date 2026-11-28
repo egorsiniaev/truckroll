@@ -8,7 +8,8 @@ scored by [`control/src/control/eval.py`](../control/src/control/eval.py).
   truth.
 - **What it does:** one Gemini call per incident (15 s after it opens), answering in a fixed JSON schema: root-cause
   category (network, hardware, firmware, backend, expected), a two-sentence summary, the evidence it used, one next
-  step, "all clear" yes/no, confidence. The verdict goes into the incident timeline as "AI agent".
+  step, "all clear" yes/no, confidence. The verdict goes into the incident timeline as "AI agent". Firmware rollout
+  incidents (failed install, failing release) are skipped: their cause is our own update.
 - **Human gate:** its suggested next step becomes a question on the map with a 90 s deadline. What happens when
   nobody answers depends on the agent's confidence: at 70 % or more the default is **yes** and the step runs; below
   70 % the default is **no**. The question says which, up front. Anyone visiting the live demo can answer.

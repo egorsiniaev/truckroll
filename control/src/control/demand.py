@@ -106,13 +106,15 @@ class SiteDemand:
 
 class DemandEngine:
     def __init__(self, sites: list[dict], clients, id_tags: list[str], rng: random.Random | None = None,
-                 clock: Callable[[], float] = time.monotonic, on_lost: Callable[[str, float], None] | None = None) -> None:
+                 clock: Callable[[], float] = time.monotonic, on_lost: Callable[[str, float], None] | None = None,
+                 blocked: Callable[[], set[str]] | None = None) -> None:
         self.sites = {s["code"]: s for s in sites}
         self.clients = clients
         self.id_tags = id_tags or ["TR-0001"]
         self.rng = rng or random.Random()
         self.clock = clock
         self.on_lost = on_lost or (lambda site, kwh: None)
+        self.blocked = blocked or set  # stations out for maintenance; the simulator won't refuse a start on them
         self.state = {code: SiteDemand() for code in self.sites}
         self.rates: dict[str, float] = {}
         self._ids = itertools.count(1)
@@ -313,10 +315,11 @@ class DemandEngine:
 
     async def _assign(self, code: str, st: SiteDemand, stations: Mapping, now: float) -> None:
         busy = set(st.sessions)
+        out = self.blocked()
         free = [
             (s["id"], c["id"])
             for s in sorted((x for x in stations.values() if x["site"] == code), key=lambda x: x["id"])
-            if s.get("connected")
+            if s.get("connected") and s["id"] not in out
             for c in s.get("connectors", [])
             if c["status"] == "Available" and not c.get("transaction_id") and (s["id"], c["id"]) not in busy
         ]

@@ -187,3 +187,10 @@ async def test_public_drivers_who_see_a_long_wait_in_the_app_go_elsewhere():
         await eng.tick(snap([("S-1", 1, "Charging", 5, 0)]), {"S": 1.0}, {"S": 1.0})
     st = eng.status()["S"]
     assert st["expected_wait_s"] > 3600 and st["diverted"] > 0 and lost
+
+
+async def test_chargers_out_for_a_firmware_update_get_no_cars():
+    eng = DemandEngine([SITE], Clients(), ["TAG"], rng=random.Random(3), clock=lambda: 0.0,
+                       blocked=lambda: {"S-1"})
+    await eng.tick(snap([("S-1", 1, "Available", None, 0), ("S-2", 1, "Available", None, 0)]), {"S": 1.0}, {"S": 1.0})
+    assert [c[1] for c in eng.clients.simulator.calls] == ["S-2"]

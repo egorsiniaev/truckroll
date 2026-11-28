@@ -8,7 +8,7 @@ Instructions for coding agents (Claude Code, Codex and others) and anyone new to
 | Where | Command |
 |---|---|
 | `csms/`, `control/` | `uv run pytest` (tests), `uvx ruff check src tests` (lint) |
-| repo root | `docker compose up -d --build` (whole stack), `docker compose down` |
+| repo root | `docker compose up -d --build` (whole stack), `docker compose up -d --build --no-deps control` (one service), `docker compose down` |
 | `site/` | `python -I site/capture.py` (screenshots from the live system) |
 
 A change is done when lint and tests pass in every service it touches, and the stack still starts.

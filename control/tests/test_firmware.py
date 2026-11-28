@@ -153,3 +153,21 @@ async def test_state_survives_a_restart():
     assert again.versions == fw.versions and again.latest == fw.latest
     assert again.installs["S-1"].ends == fw.installs["S-1"].ends
     assert "flawed" not in again.status()["releases"][0]  # the hidden flaw never reaches the page
+
+
+async def test_install_gives_way_to_a_driver_who_plugged_in_at_the_same_moment():
+    fw, _, events = manager()
+    await fw.tick([station("S-1")])
+    assert "S-1" in fw.installs
+    await fw.tick([station("S-1", status="Charging", tx=42)])
+    assert "S-1" not in fw.installs and fw.versions["S-1"] == FIRST_VERSION
+    assert events[-1]["type"] == "install_cancelled"
+    assert fw.clients.csms.calls[-1] == ("S-1", "Operative")
+
+
+async def test_charger_put_back_in_service_by_something_else_is_taken_out_again():
+    fw, _, _ = manager()
+    await fw.tick([station("S-1")])
+    fw.clients.csms.calls.clear()
+    await fw.tick([station("S-1")])  # still installing, but shows Available
+    assert fw.clients.csms.calls == [("S-1", "Inoperative")]

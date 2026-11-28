@@ -107,12 +107,13 @@ class Hub:
         self.uptime = UptimeTracker([s["code"] for s in self.sites])
         self.batteries = BatteryFleet(self.sites, enabled=self.batteries_default)
         self.state_path = self.ledger_path.with_name("state.json") if self.ledger_path else None
-        self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
-                                   on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices))
         self._fw_events: list[dict] = []
         self.firmware = FirmwareManager(self.sites, self.clients,
                                         self.ledger_path.with_name("firmware.jsonl") if self.ledger_path else None,
                                         on_event=self._fw_events.append)
+        self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
+                                   on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices),
+                                   blocked=lambda: set(self.firmware.installs))
         self.incidents.firmware = self.firmware
         self.outages = OutagePlanner([s["code"] for s in self.sites], self.runner, self._lost_today)
         self._load_state()  # last: needs every component above
@@ -367,7 +368,7 @@ class Hub:
         for st in snap["stations"]:
             st["firmware"] = self.firmware.versions.get(st["id"])
             if (job := installing.get(st["id"])) is not None:
-                st["firmware_job"] = {"phase": job.phase, "to": job.target}
+                st["firmware_job"] = {"phase": job.phase, "to": job.source if job.phase == "rolling_back" else job.target}
             st["limit_sources"] = {SOURCE_LABELS.get(k, k): v for k, v in self.limits.sources_for(st["id"]).items()}
             for c in st.get("connectors", []):
                 c["session"] = sessions.get(f"{st['id']}#{c['id']}")
