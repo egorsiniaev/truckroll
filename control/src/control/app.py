@@ -48,6 +48,10 @@ class FaultRequest(BaseModel):
     error_code: Literal[ERROR_CODES] = "OtherError"  # type: ignore[valid-type]
 
 
+class FilingRequest(BaseModel):
+    reference: str = Field(default="", max_length=80)
+
+
 class DecisionRequest(BaseModel):
     choice: Literal["approve", "reject"]
 
@@ -203,6 +207,35 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True, guard:
         if day == _today():
             return hub.daily_report(day)
         raise HTTPException(404, f"no daily report for {day}")
+
+    def _pack(pack_id: str) -> dict:
+        pack = next((p for p in hub.filing_packs() if p["id"] == pack_id), None)
+        if pack is None:
+            raise HTTPException(404, f"no filing {pack_id}")
+        return pack
+
+    @app.get("/api/filings")
+    async def filings_list():
+        return {"filings": [{k: v for k, v in p.items() if k != "stages"}
+                            | {"stages": [{k: v for k, v in s.items() if k != "fields"} for s in p["stages"]]}
+                            for p in hub.filing_packs()[:100]]}
+
+    @app.get("/api/filings/{pack_id}")
+    async def filing_get(pack_id: str):
+        return _pack(pack_id)
+
+    @app.post("/api/filings/{pack_id}/{stage}/{action}")
+    async def filing_mark(pack_id: str, stage: str, action: Literal["approve", "sent"], body: FilingRequest):
+        pack = _pack(pack_id)
+        try:
+            entry = hub.filings.mark(pack, stage, "approved" if action == "approve" else "sent", body.reference)
+        except KeyError:
+            raise HTTPException(404, f"no stage {stage}") from None
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+        hub.add_event("info", f"{pack['regime'].upper()} {stage.replace('_', ' ')} for {pack['reference']} "
+                              f"{'approved' if action == 'approve' else 'marked as sent'}", kind="report")
+        return {"ok": True, "result": entry}
 
     @app.get("/api/summary")
     async def summary(since: str):

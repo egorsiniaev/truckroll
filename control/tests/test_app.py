@@ -271,3 +271,18 @@ async def test_handover_explains_the_margin(ctx):
     parts = (await client.get("/api/summary", params={"since": "2026-01-01T00:00:00Z"})).json()["facts"]["margin_parts"]
     assert parts["visits"] == 2 and parts["visits_eur"] == 300
     assert {"sales_eur", "energy_eur", "lost_eur"} <= parts.keys()
+
+
+async def test_filing_api_lists_packs_and_tracks_stages(ctx):
+    client, _, hub = ctx
+    inc = hub.incidents._new("site:A2-HUB", "site_outage", "critical", "A2-HUB lost contact", "A2-HUB", [])
+    inc.ttr_s = 2000
+    body = (await client.get("/api/filings")).json()["filings"]
+    pack_id = body[0]["id"]
+    assert pack_id == f"nis2-{inc.id}" and "fields" not in body[0]["stages"][0]
+    full = (await client.get(f"/api/filings/{pack_id}")).json()
+    assert full["stages"][0]["fields"]
+    assert (await client.post(f"/api/filings/{pack_id}/early_warning/sent", json={})).status_code == 409
+    assert (await client.post(f"/api/filings/{pack_id}/early_warning/approve", json={})).status_code == 200
+    assert (await client.post(f"/api/filings/{pack_id}/early_warning/sent", json={"reference": "X1"})).status_code == 200
+    assert (await client.get("/api/filings/nis2-nope")).status_code == 404

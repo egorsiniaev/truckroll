@@ -285,8 +285,12 @@ function renderQuestions() {
   if (userBusy(feedBox)) return;
   const pending = snapshot.decisions?.pending ?? [];
   const list = document.getElementById("questions");
-  list.innerHTML = pending.length ? `<li class="q-head">Waiting for you</li>` + pending.map((d) =>
-    `<li class="question">${questionHtml(d)}</li>`).join("") : "";
+  const due = snapshot.filings_due ?? [];
+  const filing = (f) => `<li class="question filing"><a href="/reports.html?filing=${encodeURIComponent(f.id)}">
+    <b>${esc(f.regime)} ${esc(f.stage.replace(/ \(.*\)/, "").toLowerCase())} ${f.left_h < 0 ? `overdue by${NB}${Math.round(-f.left_h)}${NB}h` : `due in${NB}${f.left_h < 1 ? "<1" : Math.round(f.left_h)}${NB}h`}</b>
+    <span>${esc(f.title)}: prepare and&nbsp;file it →</span></a></li>`;
+  list.innerHTML = (pending.length || due.length ? `<li class="q-head">Waiting for you</li>` : "")
+    + due.map(filing).join("") + pending.map((d) => `<li class="question">${questionHtml(d)}</li>`).join("");
   wireDecisionButtons(list);
 }
 

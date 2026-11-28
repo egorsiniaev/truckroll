@@ -341,6 +341,19 @@ class FirmwareManager:
                     continue
         return rows
 
+    def release_log(self) -> list[dict]:
+        """Every release ever cut, from the log file."""
+        if self.log_path is None or not self.log_path.exists():
+            return []
+        rows = []
+        for line in self.log_path.read_text().splitlines():
+            if '"type": "release"' in line:
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        return rows
+
     def status(self) -> dict:
         now = self.clock()
         spread: dict[str, int] = {}

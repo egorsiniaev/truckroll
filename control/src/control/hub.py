@@ -45,6 +45,7 @@ PRICES_EVERY_S = 3600
 PRICES_RETRY_S = 600
 SAVE_EVERY_S = 60
 FIRMWARE_EVERY_S = 10
+FILINGS_EVERY_S = 60
 DAILY_REPORT_AT = (23, 55)  # local: the day's NIS2/CRA report is written just before midnight
 MAX_EVENTS = 80
 
@@ -115,6 +116,9 @@ class Hub:
                                    on_lost=lambda site, kwh, why: self.economics.lost(site, kwh, self.prices, why),
                                    blocked=lambda: set(self.firmware.installs))
         self.incidents.firmware = self.firmware
+        from control.filings import Filings
+        self.filings = Filings(self.ledger_path.with_name("filings.json") if self.ledger_path else None)
+        self._filings_due: list[dict] = []
         self.outages = OutagePlanner([s["code"] for s in self.sites], self.runner, self._lost_today)
         self._load_state()  # last: needs every component above
         if self.history_path is not None and not self.history_path.exists():
@@ -407,6 +411,7 @@ class Hub:
             "decisions": self.book.snapshot(),
             "firmware": self.firmware.status(),
             "area_outage": self.outages.status(),
+            "filings_due": self._filings_due,
             "agent": self.agent.status() if self.agent is not None else None,
         }
 
@@ -447,6 +452,9 @@ class Hub:
             if outage:
                 self.add_event("error" if "power and line down" in outage else "info", outage, kind="scenario")
             self._daily_report_due()
+            if self._due_now("filings", FILINGS_EVERY_S):
+                from control.filings import due_soon
+                self._filings_due = due_soon(self.filing_packs(), datetime.now(UTC))
             started = self.autopilot.tick(snap["stations"])
             if started:
                 self.add_event("info", f"autopilot picked a random scenario: {started}", kind="scenario")
@@ -471,6 +479,31 @@ class Hub:
                      self.firmware.versions, [r.public() for r in self.firmware.releases],
                      self.economics.summary() if today else None,
                      self.uptime.summary()["fleet"] if self.uptime.day == day else None, _now_iso(), preliminary)
+
+    def filing_packs(self) -> list[dict]:
+        """One pack per NIS2 significant incident and per actively exploited vulnerability, newest first."""
+        from control.filings import cra_pack, nis2_pack
+        from control.firmware import parse
+        from control.reports import applicability
+        sites = {s["code"]: s for s in self.sites}
+        outages = [*self.outages.log] + ([self.outages.for_day(self.outages.plan["day"])]
+                                         if self.outages.plan.get("started") and not self.outages.plan.get("ended") else [])
+
+        def loss(inc: dict) -> float | None:
+            t = _parse_iso(inc["opened"])
+            for o in outages:
+                start = _parse_iso(o["started"])
+                if o["site"] == inc["site"] and abs((t - start).total_seconds()) <= 180:
+                    return o["loss_eur"]
+            return None
+
+        packs = [nis2_pack(i, sites, loss(i)) for i in self.history() if applicability(i)["nis2"]["applies"]]
+        for r in self.firmware.release_log():
+            if r.get("exploited"):
+                need = parse(r["version"])
+                on = {s for s, v in self.firmware.versions.items() if parse(v) >= need}
+                packs.append(cra_pack(r, self.firmware.versions, on))
+        return sorted((self.filings.decorate(p) for p in packs), key=lambda p: p["opened"], reverse=True)
 
     def _daily_report_due(self) -> None:
         from control.uptime import TZ

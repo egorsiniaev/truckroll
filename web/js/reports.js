@@ -4,6 +4,7 @@ import { esc, post, toast } from "./panel.js";
 const NB = " ";
 const list = document.getElementById("incident-list");
 const dailyList = document.getElementById("daily-list");
+const filingList = document.getElementById("filing-list");
 const detail = document.getElementById("detail");
 const only = document.getElementById("only-reportable");
 let rows = [];
@@ -140,12 +141,12 @@ function verdictCard(name, v, line) {
 
 function dueTable(n, c) {
   const rows = [
-    ...n.significant.map((x) => ({ reg: "NIS2", what: `${esc(x.title)} <small>${esc(x.id)}</small>`, why: esc(x.why), d: x.deadlines })),
-    ...c.exploited.map((x) => ({ reg: "CRA", what: `${esc(x.advisory)} fixed in&nbsp;${esc(x.version)}`, why: `actively exploited, ${esc(x.severity)} severity`, d: x.deadlines })),
+    ...n.significant.map((x) => ({ reg: "NIS2", what: `${esc(x.title)} <small>${esc(x.id)}</small>`, why: esc(x.why), d: x.deadlines, pack: `nis2-${x.id}` })),
+    ...c.exploited.map((x) => ({ reg: "CRA", what: `${esc(x.advisory)} fixed in&nbsp;${esc(x.version)}`, why: `actively exploited, ${esc(x.severity)} severity`, d: x.deadlines, pack: `cra-${x.advisory}` })),
   ];
   if (!rows.length) return `<p class="muted">Nothing to&nbsp;notify today.</p>`;
   return `<table class="due"><tr><th>Regime</th><th>What</th><th>Early warning</th><th>Notification</th><th>Final report</th></tr>
-    ${rows.map((r) => `<tr><td><span class="badge nis2">${r.reg}</span></td><td><b>${r.what}</b><small>${r.why}</small></td>
+    ${rows.map((r) => `<tr><td><span class="badge nis2">${r.reg}</span></td><td><b>${r.what}</b><small>${r.why} · <a href="#" class="no-print" data-pack="${esc(r.pack)}">open filing pack</a></small></td>
       <td>${due(r.d.early_warning)}</td><td>${due(r.d.notification)}</td><td>${due(r.d.final_report)}</td></tr>`).join("")}</table>`;
 }
 
@@ -184,7 +185,9 @@ async function openDaily(day) {
   renderList();
   loadDaily();
   const rep = await (await fetch(`/api/daily/${encodeURIComponent(day)}`)).json();
-  detail.innerHTML = `<h3>Daily NIS2 and&nbsp;CRA report, ${esc(day)}</h3>
+  document.title = `NIS2 and CRA report ${day}`;
+  detail.innerHTML = `<div class="dr-head"><h3>Daily NIS2 and&nbsp;CRA report, ${esc(day)}</h3>
+      <button class="mini no-print" id="pdf">Download PDF</button></div>
     <p class="meta">${rep.preliminary ? "So far today; the final version is&nbsp;written at&nbsp;23:55." : `Written ${fmt(rep.generated)}.`}
       Built from rules and&nbsp;our own records; no&nbsp;AI. Truckroll never sends it.</p>
     <div class="dr-verdicts">
@@ -194,9 +197,74 @@ async function openDaily(day) {
     <h4>Due to&nbsp;the&nbsp;authority</h4>
     ${dueTable(rep.nis2, rep.cra)}
     ${nis2Html(rep.nis2)}${craHtml(rep.cra)}`;
+  document.getElementById("pdf").onclick = () => window.print();
+  detail.querySelectorAll("[data-pack]").forEach((a) => { a.onclick = (e) => { e.preventDefault(); openPack(a.dataset.pack); }; });
+}
+
+// ---- filing packs: what NIS2 and the CRA ask for, per reportable event -------------------------
+const STATUS = { drafted: ["draft", "warn"], approved: ["approved, not sent", "warn"], sent: ["sent", "ok"] };
+let packs = [];
+
+function nextDue(p) {
+  const s = p.stages.find((x) => x.status !== "sent" && x.deadline);
+  return s ? `${esc(s.title.replace(/ \(.*\)/, ""))} ${due(s.deadline)}` : p.done ? '<span class="rp-ok">all stages sent</span>' : "";
+}
+
+async function loadFilings() {
+  packs = (await (await fetch("/api/filings")).json()).filings;
+  filingList.innerHTML = packs.map((p) => `<li data-pack="${esc(p.id)}" class="dl-row fl-row ${current === `pack:${p.id}` ? "active" : ""}">
+    <span class="badge nis2">${p.regime.toUpperCase()}</span><b>${esc(p.title)}</b><span class="fl-next">${nextDue(p)}</span></li>`).join("")
+    || `<li class="muted">Nothing to&nbsp;file.</li>`;
+  filingList.querySelectorAll("[data-pack]").forEach((li) => { li.onclick = () => openPack(li.dataset.pack); });
+}
+
+function stageHtml(p, s) {
+  const [label, cls] = STATUS[s.status] ?? [s.status, "warn"];
+  const who = s.status === "sent" ? `Marked sent ${fmt(s.sent_at)}${s.reference ? `, reference ${esc(s.reference)}` : ""}.`
+    : s.status === "approved" ? `Approved ${fmt(s.approved_at)}.` : "";
+  const actions = s.status === "drafted" ? `<button class="mini primary" data-act="approve" data-stage="${s.key}">Approve</button>`
+    : s.status === "approved" ? `<input class="fl-ref" data-ref="${s.key}" placeholder="Portal reference (optional)" maxlength="80">
+        <button class="mini primary" data-act="sent" data-stage="${s.key}">Mark as&nbsp;sent</button>` : "";
+  return `<section class="fl-stage">
+    <header><h4>${esc(s.title)}</h4><span class="rp-pill ${cls}">${label}</span>
+      ${s.deadline ? `<span class="fl-due">due ${due(s.deadline)}</span>` : ""}</header>
+    <table class="kv fl-fields">${s.fields.map((f, i) => `<tr><td>${esc(f.label)}</td><td><div class="fl-cell"><span class="fl-val">${esc(f.value)}</span>
+      <button class="copy no-print" data-copy="${s.key}:${i}" title="Copy">Copy</button></div></td></tr>`).join("")}</table>
+    <p class="meta no-print">${who} ${actions}</p></section>`;
+}
+
+async function openPack(id) {
+  current = `pack:${id}`;
+  renderList(); loadDaily(); loadFilings();
+  const p = await (await fetch(`/api/filings/${encodeURIComponent(id)}`)).json();
+  document.title = `${p.regime.toUpperCase()} ${p.reference} filing`;
+  detail.innerHTML = `<div class="dr-head"><h3>${p.regime.toUpperCase()} filing: ${esc(p.title)}</h3>
+      <button class="mini no-print" id="pdf">Download PDF</button></div>
+    <p class="meta">${esc(p.reference)} · reportable because ${esc(p.why)} · file through ${esc(p.channel)}.
+      Prepared from our records; a&nbsp;person approves each stage, files it in&nbsp;the&nbsp;portal and&nbsp;marks it sent. Truckroll never sends anything.</p>
+    ${p.stages.map((s) => stageHtml(p, s)).join("")}
+    <p class="meta print-only">Printed ${fmt(new Date().toISOString())} from Truckroll (simulated operator). Statuses as recorded at that moment.</p>`;
+  document.getElementById("pdf").onclick = () => window.print();
+  detail.querySelectorAll("[data-copy]").forEach((b) => {
+    b.onclick = async () => {
+      const [stage, i] = b.dataset.copy.split(":");
+      await navigator.clipboard.writeText(p.stages.find((s) => s.key === stage).fields[Number(i)].value);
+      toast("Copied");
+    };
+  });
+  detail.querySelectorAll("[data-act]").forEach((b) => {
+    b.onclick = async () => {
+      const ref = detail.querySelector(`[data-ref="${b.dataset.stage}"]`)?.value ?? "";
+      if (await post(`/api/filings/${encodeURIComponent(id)}/${b.dataset.stage}/${b.dataset.act}`, { reference: ref }, b)) openPack(id);
+    };
+  });
 }
 
 only.onchange = renderList;
+loadFilings().then(() => {
+  const first = new URLSearchParams(location.search).get("filing");
+  if (first) openPack(first);
+}).catch((e) => toast(`Failed: ${e.message}`, true));
 loadDaily().catch((e) => toast(`Failed: ${e.message}`, true));
 loadList().then(() => {
   const first = new URLSearchParams(location.search).get("incident");
