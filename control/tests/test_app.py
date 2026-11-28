@@ -259,3 +259,15 @@ async def test_scheduled_outages_are_not_on_the_panel_or_the_api(ctx):
     ids = {s["id"] for s in (await client.get("/api/meta")).json()["scenarios"]}
     assert not any(i.startswith("area-outage") for i in ids)
     assert (await client.post("/api/scenarios/area-outage-a2-hub/start")).status_code == 404
+
+
+async def test_handover_explains_the_margin(ctx):
+    client, _, hub = ctx
+    from datetime import UTC, datetime
+    hub.economics.accrue([{"code": "A2-HUB", "power_w": 0}], None, 1, datetime.now(UTC))
+    hub.economics.service("A2-HUB", 150)
+    hub.economics.service("A2-HUB", 150)
+    await hub.poll_once()
+    parts = (await client.get("/api/summary", params={"since": "2026-01-01T00:00:00Z"})).json()["facts"]["margin_parts"]
+    assert parts["visits"] == 2 and parts["visits_eur"] == 300
+    assert {"sales_eur", "energy_eur", "lost_eur"} <= parts.keys()

@@ -414,6 +414,16 @@ function markVisit() { localStorage.setItem("lastVisit", new Date().toISOString(
 setInterval(() => { if (document.visibilityState === "visible") markVisit(); }, 60_000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") markVisit(); });
 
+function marginParts(p) {
+  if (!p || p.sales_eur == null) return "";
+  const e = (v) => `€${Math.round(Math.abs(v ?? 0)).toLocaleString()}`;
+  return `<ul class="ho-parts">
+    <li><span>Charging sales</span><span>${e(p.sales_eur)}</span></li>
+    <li><span>Grid energy</span><span>−${e(p.energy_eur)}</span></li>
+    <li><span>Technician visits (${p.visits}${NB}×${NB}€150)</span><span>−${e(p.visits_eur)}</span></li>
+    <li class="muted"><span>Sales lost to${NB}incidents and${NB}queues, not in${NB}the${NB}margin</span><span>${e(p.lost_eur)}</span></li></ul>`;
+}
+
 async function showHandover() {
   const last = localStorage.getItem("lastVisit");
   markVisit();
@@ -441,8 +451,8 @@ async function showHandover() {
     <div class="ho-tiles">
       ${tile(f.incidents_opened, "incidents opened")}
       ${tile(f.incidents_resolved, "resolved", "ok")}
-      ${tile(f.decisions_by_default, `decisions went to${NB}the${NB}default · ${f.decisions_by_you} answered by${NB}you`, f.decisions_by_default && !f.decisions_by_you ? "warn" : "")}
-      ${tile(marginText, "margin today", margin < 0 ? "bad" : "ok")}
+      ${tile(f.decisions_by_default, `decisions went to${NB}the${NB}default${f.decisions_by_you ? ` · ${f.decisions_by_you} answered by${NB}a${NB}person` : ""}`, f.decisions_by_default && !f.decisions_by_you ? "warn" : "")}
+      ${tile(marginText, "margin today", margin < 0 ? "bad" : "ok", marginParts(f.margin_parts))}
       ${Object.keys(f.opened_by_kind).length ? `<div class="ho-chips ho-kinds">${chips(f.opened_by_kind)}</div>` : ""}
     </div>
     ${f.waiting_for_you.length ? section("Waiting for you", `<ul class="ho-list">${f.waiting_for_you.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>`) : ""}

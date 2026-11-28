@@ -7,6 +7,8 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from control.fieldservice import VISIT_EUR
+
 
 def _t(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
@@ -42,5 +44,9 @@ def handover(since: datetime, snapshot: dict, decisions, ledger_path: Path | Non
         "scenarios_run": dict(Counter(runs)),
         "slos_missed": missed,
         "margin_today_eur": money.get("margin_eur"),
+        "margin_parts": {"sales_eur": money.get("revenue_eur"), "energy_eur": money.get("cost_eur"),
+                         "visits_eur": money.get("service_eur"),
+                         "visits": max(money.get("visits") or 0, round((money.get("service_eur") or 0) / VISIT_EUR)),
+                         "lost_eur": money.get("lost_eur")},
         "technicians_out": len(snapshot.get("field_jobs", [])),
     }
