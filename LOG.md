@@ -72,3 +72,10 @@ cleanup forced an updating charger back to Available; the rollout now re-asserts
 Agent mistake: rebuilt with `docker compose up -d --build control`, which also recreated the simulator and cut every
 session three times. I first blamed the startup proxy cleanup for the all-site "lost contact" blips; wrong, it was
 the rebuild. Use `--no-deps` when rebuilding one service.
+
+## 2026-11-28: negative margin every day
+Server data, 26-28 Nov: margin -€1,186, -€2,386 and -€93 (so far). Most of it is technician visits: about €2,100,
+€5,200 and €1,350 a day (14, 35 and 9 visits at €150), mainly at A2-HUB and UTR-RETAIL. The rest is structural: the
+depot sold at a fixed €0.32/kWh while grid power cost spot + €0.11, and the last 24 h averaged €265/MWh, so every
+depot kWh lost money (-€74 and -€94 a day on energy alone); the office broke even. Fix for the second part: depot and
+office contracts now follow cost (+€0.06 and +€0.10 per kWh). Lost revenue is not part of margin.

@@ -82,9 +82,12 @@ function rulesList(rules) {
 
 const BASE_TARIFF = { depot: 0.32, retail: 0.49, highway: 0.69, office: 0.39 };
 
+const MARKUP = { depot: 0.06, office: 0.10 }; // contracts follow the cost of power
+
 function tariffNote(site, money) {
   const base = BASE_TARIFF[site.profile];
   if (!base || money.tariff_eur_kwh == null) return "";
+  if (MARKUP[site.profile] != null) return `<span class="muted">(contract: cost of&nbsp;power + €${MARKUP[site.profile].toFixed(2)})</span>`;
   const d = money.tariff_eur_kwh / base - 1;
   if (Math.abs(d) < 0.005) return `<span class="muted">(base)</span>`;
   return d > 0 ? `<span class="warn">(+${Math.round(d * 100)}%, price spike)</span>` : `<span class="ok">(−${Math.round(-d * 100)}%, cheap power or&nbsp;solar)</span>`;

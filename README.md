@@ -18,6 +18,7 @@ incident engine with people in the loop, and an AI triage agent that is scored a
 - **Backend (CSMS):** a thin OCPP 1.6J server on [mobilityhouse/ocpp](https://github.com/mobilityhouse/ocpp) with OpenTelemetry metrics and logs.
 - **Energy and drivers:** grid caps, a site controller, batteries, ENTSO-E day-ahead prices, Open-Meteo weather,
   arrivals, queues and driver patience, revenue and margin. Weekends and Dutch public holidays have their own demand.
+  Depot and office contracts are priced at the cost of grid power plus a fixed markup.
 - **Firmware:** a new release every hour (patch hourly, minor every 6 h, major on Mondays at 03:00), installed only on
   free chargers, a quarter of a site at a time. Some installs fail and roll back; a release that fails too often
   becomes a question to halt it and roll the fleet back.

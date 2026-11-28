@@ -14,13 +14,27 @@ def test_dynamic_pricing_passes_spikes_to_public_sites_only():
     assert tariff(HUB, SPIKE, dynamic=True) == pytest.approx(0.69 * 1.6)  # capped
     assert tariff(HUB, CALM, dynamic=True) == pytest.approx(0.69 * (1 - 0.2 * 0.8), abs=0.001)  # 20 % dip -> 16 % off
     assert tariff(HUB, SPIKE, dynamic=False) == 0.69
-    assert tariff(DEPOT, SPIKE, dynamic=True) == 0.32  # fleet contract stays fixed
+
+
+def test_fleet_and_office_contracts_follow_the_cost_of_power():
+    office = {"code": "EHV-OFFICE", "demand": "office"}
+    buy = 0.300 + GRID_FEES_EUR_KWH
+    assert tariff(DEPOT, SPIKE, dynamic=True) == pytest.approx(buy + 0.06)
+    assert tariff(DEPOT, SPIKE, dynamic=False) == pytest.approx(buy + 0.06)  # a contract, not dynamic pricing
+    assert tariff(office, CALM, dynamic=True) == pytest.approx(0.120 + GRID_FEES_EUR_KWH + 0.10)
+    assert tariff(DEPOT, None, dynamic=True) == pytest.approx(0.100 + GRID_FEES_EUR_KWH + 0.06)  # no prices: fallback
 
 
 def test_dearer_public_charger_loses_drivers_fleet_barely():
     assert demand_factor(HUB, 0.69) == 1.0
     assert demand_factor(HUB, 0.69 * 1.6) < 0.55
     assert demand_factor(DEPOT, 0.32 * 1.6) > 0.9
+
+
+def test_indexed_contract_never_loses_money_on_grid_energy():
+    econ = Economics([DEPOT])
+    econ.accrue([{"code": "AMS-DEPOT", "power_w": 20_000}], SPIKE, 3600, datetime(2026, 11, 24, 18, tzinfo=UTC))
+    assert econ.summary()["sites"]["AMS-DEPOT"]["margin_eur"] == pytest.approx(20 * 0.06)
 
 
 def test_accrue_uses_solar_first_then_grid_at_spot_plus_fees():
@@ -49,7 +63,7 @@ def test_cheap_hours_and_solar_give_discounts_that_draw_drivers():
     assert t == pytest.approx(0.69 * 0.6)  # floor
     assert demand_factor(HUB, t) == 1.8  # capped
     assert tariff(HUB, None, dynamic=True, solar_share=0.6) == pytest.approx(0.69 * 0.9)
-    assert tariff(DEPOT, cheap, dynamic=True) == 0.32  # contracts don't move
+    assert tariff(DEPOT, cheap, dynamic=True) == pytest.approx(0.05 + GRID_FEES_EUR_KWH + 0.06)  # follows cost down
 
 
 def test_battery_charging_adds_and_discharging_removes_grid_energy():

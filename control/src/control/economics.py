@@ -1,5 +1,8 @@
 """Money: buy energy at the day-ahead price plus fees, take solar for free, sell at each site's tariff.
 
+Fleet (depot) and office contracts are indexed: cost of grid power plus a fixed markup, so they never sell below
+cost. Public sites have a list price, optionally dynamic.
+
 Simple on purpose, and every number is visible on the page. Batteries come later.
 """
 
@@ -26,16 +29,17 @@ MAX_DEMAND_FACTOR = 1.8
 class Commercial:
     """Per demand profile: what drivers pay and how much they care."""
 
-    tariff_eur_kwh: float
+    tariff_eur_kwh: float  # base: what drivers expect to pay, for the demand effect
     elasticity: float  # how strongly arrivals fall when the tariff rises above base
-    public: bool  # only public chargers get dynamic prices; fleet and office contracts stay fixed
+    public: bool  # only public chargers get dynamic prices
+    markup_eur_kwh: float | None = None  # contracts: price = cost of grid power + this markup
 
 
 COMMERCIAL: dict[str, Commercial] = {
-    "depot": Commercial(0.32, 0.1, False),
+    "depot": Commercial(0.32, 0.1, False, 0.06),
     "retail": Commercial(0.49, 1.2, True),
     "highway": Commercial(0.69, 1.5, True),
-    "office": Commercial(0.39, 0.3, False),
+    "office": Commercial(0.39, 0.3, False, 0.10),
 }
 
 
@@ -55,8 +59,16 @@ def tariff_factor(prices: Mapping | None, solar_share: float = 0.0) -> float:
     return min(MAX_TARIFF_FACTOR, max(MIN_TARIFF_FACTOR, factor))
 
 
+def buy_price(prices: Mapping | None) -> float:
+    """What a grid kWh costs us now: day-ahead spot plus fees."""
+    spot = prices["now_eur_mwh"] if prices and prices.get("available") else FALLBACK_SPOT_EUR_MWH
+    return spot / 1000 + GRID_FEES_EUR_KWH
+
+
 def tariff(site: Mapping, prices: Mapping | None, dynamic: bool, solar_share: float = 0.0) -> float:
     c = commercial(site)
+    if c.markup_eur_kwh is not None:
+        return round(buy_price(prices) + c.markup_eur_kwh, 3)
     if not dynamic or not c.public:
         return c.tariff_eur_kwh
     return round(c.tariff_eur_kwh * tariff_factor(prices, solar_share), 3)
@@ -110,7 +122,6 @@ class Economics:
     def accrue(self, snapshot_sites: list[Mapping], prices: Mapping | None, dt_s: float, now: datetime) -> None:
         """Integrate power over the last dt seconds into today's money. Battery power: + charging, - discharging."""
         self._roll_day(now)
-        spot = prices["now_eur_mwh"] if prices and prices.get("available") else FALLBACK_SPOT_EUR_MWH
         for row in snapshot_sites:
             power = row["power_w"]
             self.solar_share[row["code"]] = min(1.0, (row.get("solar_w") or 0.0) / power) if power > 0 else 0.0
@@ -121,7 +132,7 @@ class Economics:
             battery_kw = ((row.get("battery") or {}).get("power_w") or 0.0) / 1000
             solar_kw = min(power_kw + max(0.0, battery_kw), (row.get("solar_w") or 0.0) / 1000)
             grid_kw = max(0.0, power_kw + battery_kw - solar_kw)
-            buy = spot / 1000 + GRID_FEES_EUR_KWH
+            buy = buy_price(prices)
             rev_h, cost_h = power_kw * tariffs[code], grid_kw * buy
             self.rates[code] = {"revenue_eur_h": round(rev_h, 2), "cost_eur_h": round(cost_h, 2),
                                 "margin_eur_h": round(rev_h - cost_h, 2), "tariff_eur_kwh": tariffs[code],
