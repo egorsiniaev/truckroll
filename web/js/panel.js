@@ -130,7 +130,7 @@ export function renderSite(root, site, snapshot, ctx) {
       <tr><td>Energy cost now (spot + fees)</td><td>€${(money.buy_eur_kwh ?? 0).toFixed(2)}/kWh</td></tr>
       <tr><td>Sold ${(money.energy_kwh ?? 0).toFixed(0)}${NB}kWh (${(money.solar_kwh ?? 0).toFixed(0)} from solar)</td><td>${eur(money.revenue_eur)}</td></tr>
       <tr><td>Bought ${(money.grid_kwh ?? 0).toFixed(0)}${NB}kWh from the grid</td><td>${eur(-(money.cost_eur ?? 0))}</td></tr>
-      ${money.service_eur ? `<tr><td>Technician visits (${money.visits ?? 0} × €150)</td><td>${eur(-money.service_eur)}</td></tr>` : ""}
+      ${money.service_eur ? `<tr><td>Technician visits (${visitCount(money)} × €150)</td><td>${eur(-money.service_eur)}</td></tr>` : ""}
       <tr class="total"><td>Margin</td><td class="${(money.margin_eur ?? 0) < 0 ? "neg" : "pos"}">${eur(money.margin_eur)}</td></tr>
       <tr><td class="muted">Sales lost (not in&nbsp;margin): cut off ${eur(money.lost_interrupted_eur)}, gave up ${eur(money.lost_abandoned_eur)}, went elsewhere ${eur(money.lost_diverted_eur)}</td><td class="muted">${eur(money.lost_eur)}</td></tr>
     </table>
@@ -258,10 +258,13 @@ function agentRow(a) {
     <button class="switch ${a.enabled ? "on" : ""}" data-act="agent" aria-label="AI triage agent"></button></div>`;
 }
 
+// Visits before counting started only have a cost: derive the count from it.
+const visitCount = (e) => Math.max(e?.visits ?? 0, Math.round((e?.service_eur ?? 0) / 150));
+
 function marginWhy(f) {
   const energy = (f.revenue_eur ?? 0) - (f.cost_eur ?? 0);
   const visits = f.service_eur ?? 0;
-  const n = f.visits ?? Math.round(visits / 150);
+  const n = visitCount(f);
   const v = `${n} technician visit${n === 1 ? "" : "s"} (${eur(visits)})`;
   if ((f.margin_eur ?? 0) >= 0) return `Positive: charging earned ${eur(energy)} after energy${visits ? `, and&nbsp;${v} took part of&nbsp;it` : ""}.`;
   if (energy < 0) return `Negative because energy cost ${eur(-energy)} more than charging earned${visits ? `, plus ${v}` : ""}.`;
@@ -276,7 +279,7 @@ function marginBreakdown(f) {
     <table class="money">
       <tr><td>Charging sales (${(f.energy_kwh ?? 0).toFixed(0)}${NB}kWh)</td><td>${eur(f.revenue_eur)}</td></tr>
       <tr><td>Grid energy (${(f.grid_kwh ?? 0).toFixed(0)}${NB}kWh, spot + fees)</td><td>${eur(-(f.cost_eur ?? 0))}</td></tr>
-      <tr><td>Technician visits (${f.visits ?? 0} × €150)</td><td>${eur(-(f.service_eur ?? 0))}</td></tr>
+      <tr><td>Technician visits (${visitCount(f)} × €150)</td><td>${eur(-(f.service_eur ?? 0))}</td></tr>
       <tr class="total"><td>Margin</td><td class="${(f.margin_eur ?? 0) < 0 ? "neg" : "pos"}">${eur(f.margin_eur)}</td></tr>
       <tr><td colspan="2" style="text-align:left"><b>Not in&nbsp;the&nbsp;margin: ${eur(f.lost_eur)} of&nbsp;sales lost</b></td></tr>
       ${lostRow("Cut off mid-session by&nbsp;a&nbsp;fault, reset or&nbsp;outage", f.lost_interrupted_eur)}
@@ -290,7 +293,7 @@ function fleetMoney(snapshot) {
   const f = snapshot.economics?.fleet;
   if (!f) return "";
   return `<div class="row"><div class="what"><b>Today: ${eur(f.margin_eur)} margin</b>
-    <span>${eur(f.revenue_eur)} sold, ${eur(f.cost_eur)} energy, ${eur(f.service_eur)} on&nbsp;${f.visits ?? 0} technician visits; ${eur(f.lost_eur)} of&nbsp;sales lost to&nbsp;incidents and&nbsp;queues</span></div></div>`;
+    <span>${eur(f.revenue_eur)} sold, ${eur(f.cost_eur)} energy, ${eur(f.service_eur)} on&nbsp;${visitCount(f)} technician visits; ${eur(f.lost_eur)} of&nbsp;sales lost to&nbsp;incidents and&nbsp;queues</span></div></div>`;
 }
 
 export function renderControls(root, snapshot, meta) {
@@ -402,7 +405,8 @@ const KPI_INFO = {
     extra: (s) => marginBreakdown(s.economics?.fleet),
     rows: (s) => s.sites.map((x) => {
       const e = x.economics || {};
-      return [x.code, eur(e.margin_eur), e.visits ? `${e.visits} visit${e.visits > 1 ? "s" : ""} (${eur(-e.service_eur)})` : "no visits", `lost ${eur(e.lost_eur)}`];
+      const n = visitCount(e);
+      return [x.code, eur(e.margin_eur), n ? `${n} visit${n > 1 ? "s" : ""} (${eur(-e.service_eur)})` : "no visits", `lost ${eur(e.lost_eur)}`];
     }),
     value: (s) => eur(s.economics?.fleet?.margin_eur),
   },
