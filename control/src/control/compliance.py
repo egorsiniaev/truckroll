@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 
 from control.firmware import TZ, parse
-from control.reports import applicability
+from control.reports import applicability, nis2_deadlines
 
 SIGNIFICANT_OUTAGE_MIN = 30
 
@@ -23,7 +23,7 @@ def _t(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
-def _deadlines(aware: datetime, final_days: int) -> dict:
+def _cra_deadlines(aware: datetime, final_days: int) -> dict:
     return {"early_warning": (aware + timedelta(hours=24)).isoformat(),
             "notification": (aware + timedelta(hours=72)).isoformat(),
             "final_report": (aware + timedelta(days=final_days)).isoformat()}
@@ -40,7 +40,7 @@ def _outage_section(outage: Mapping | None, incidents: list[Mapping]) -> dict | 
     why = (f"the whole site was unavailable for {outage['minutes']:.0f} min and lost about €{outage['loss_eur']:.0f} "
            f"in revenue") if significant else f"site down {outage['minutes']:.0f} min, under {SIGNIFICANT_OUTAGE_MIN} min"
     return {**outage, "significant": significant, "why": why, "incident_id": linked["id"] if linked else None,
-            "deadlines": _deadlines(_t(linked["opened"]) if linked else start, 30) if significant else {}}
+            "deadlines": nis2_deadlines(_t(linked["opened"]) if linked else start) if significant else {}}
 
 
 def _patching(events: list[Mapping]) -> dict:
@@ -104,7 +104,7 @@ def cra(events: list[Mapping], versions: Mapping[str, str], releases: list[Mappi
                       "exploited": r["exploited"], "released": r["time"], "patched": len(mins),
                       "halted": r["version"] in halted,
                       "median_min": statistics.median(mins) if mins else None,
-                      "deadlines": _deadlines(_t(r["time"]), 14) if r["exploited"] else {}})
+                      "deadlines": _cra_deadlines(_t(r["time"]), 14) if r["exploited"] else {}})
     exploited = [f for f in fixes if f["exploited"]]
     fixes_ever = [r for r in releases if r.get("security") and r.get("status") != "halted"]
     newest_fix = max((r["version"] for r in fixes_ever), key=parse, default=None)

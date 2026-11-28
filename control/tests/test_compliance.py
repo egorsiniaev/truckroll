@@ -87,3 +87,12 @@ def test_daily_report_flags_the_outage_and_an_exploited_vulnerability():
 def test_quiet_day_has_nothing_to_report():
     rep = daily(DAY, [], [], None, {"S-1": "1.0.0"}, [], None, None, "now", True)
     assert rep["nis2"]["verdict"] == "nothing to report" and rep["cra"]["verdict"] == "nothing to report"
+
+
+def test_nis2_final_report_is_one_month_after_the_notification():
+    from datetime import datetime
+
+    from control.reports import nis2_deadlines
+    d = nis2_deadlines(datetime.fromisoformat("2026-01-29T10:00:00+01:00"))
+    assert d["notification"].startswith("2026-02-01T10:00")
+    assert d["final_report"].startswith("2026-03-01T10:00")

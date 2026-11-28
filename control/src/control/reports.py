@@ -29,6 +29,21 @@ def _t(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
+def add_month(dt: datetime) -> datetime:
+    """Same day next month, clamped to the month's last day (31 Jan -> 28/29 Feb)."""
+    import calendar
+    year, month = (dt.year + 1, 1) if dt.month == 12 else (dt.year, dt.month + 1)
+    return dt.replace(year=year, month=month, day=min(dt.day, calendar.monthrange(year, month)[1]))
+
+
+def nis2_deadlines(aware: datetime) -> dict:
+    """NIS2 Art. 23(4): early warning 24 h and notification 72 h after awareness; final report one month after the
+    notification (taken at its deadline)."""
+    notification = aware + timedelta(hours=72)
+    return {"early_warning": (aware + timedelta(hours=24)).isoformat(), "notification": notification.isoformat(),
+            "final_report": add_month(notification).isoformat()}
+
+
 def applicability(inc: dict) -> dict:
     """Which reporting regimes apply, and why. Deliberately conservative and explainable."""
     # From the first symptom, not the alert: a 30 min outage is 30 min even if detection took a few seconds.
@@ -44,9 +59,7 @@ def applicability(inc: dict) -> dict:
     nis2 = {
         "applies": bool(reasons),
         "why": "; ".join(reasons) or "no severe disruption or financial loss: not a significant incident",
-        "deadlines": {"early_warning": (aware + timedelta(hours=24)).isoformat(),
-                      "notification": (aware + timedelta(hours=72)).isoformat(),
-                      "final_report": (aware + timedelta(days=30)).isoformat()} if reasons else {},
+        "deadlines": nis2_deadlines(aware) if reasons else {},
     }
     cra = {
         "applies": inc["kind"] in SECURITY_KINDS,
