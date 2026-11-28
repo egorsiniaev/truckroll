@@ -611,3 +611,5 @@ tr.missed .slo-pill { background: #fee2e2; color: #991b1b; } tr.missed td.v { co
 .fw-sec { display: inline-block; font-size: 10px; font-weight: 700; padding: 0 6px; margin-left: 4px; border-radius: 99px;
   background: #fef3c7; color: #92400e; }
 .fw-sec.bad { background: #fee2e2; color: #991b1b; }
+
+.money td:last-child, #details table td:nth-child(n+2) { white-space: nowrap; }
