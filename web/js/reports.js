@@ -122,48 +122,61 @@ async function loadDaily() {
   dailyList.querySelectorAll("[data-day]").forEach((li) => { li.onclick = () => openDaily(li.dataset.day); });
 }
 
-function deadlines(d) {
-  return d && d.early_warning ? `<br>Early warning ${left(d.early_warning)}<br>Notification ${left(d.notification)}<br>Final report ${left(d.final_report)}` : "";
+const kv = (rows) => `<table class="kv">${rows.filter(Boolean).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>`;
+const hrs = (min) => (min >= 90 ? `${(min / 60).toFixed(1)}${NB}h` : `${Math.round(min)}${NB}min`);
+
+function due(iso) {
+  if (!iso) return "–";
+  const ms = new Date(iso).getTime() - Date.now();
+  const h = Math.abs(ms) / 3.6e6;
+  const rel = h >= 48 ? `${Math.round(h / 24)}${NB}days` : `${Math.round(h)}${NB}h`;
+  return `<span class="deadline ${ms < 0 ? "late" : ""}">${fmt(iso)}</span><small>${ms < 0 ? `${rel} overdue` : `in ${rel}`}</small>`;
+}
+
+function verdictCard(name, v, line) {
+  return `<div class="dr-card ${v === "reportable" ? "applies" : ""}"><span class="dr-name">${name}</span>
+    ${verdict(v)}<p>${line}</p></div>`;
+}
+
+function dueTable(n, c) {
+  const rows = [
+    ...n.significant.map((x) => ({ reg: "NIS2", what: `${esc(x.title)} <small>${esc(x.id)}</small>`, why: esc(x.why), d: x.deadlines })),
+    ...c.exploited.map((x) => ({ reg: "CRA", what: `${esc(x.advisory)} fixed in&nbsp;${esc(x.version)}`, why: `actively exploited, ${esc(x.severity)} severity`, d: x.deadlines })),
+  ];
+  if (!rows.length) return `<p class="muted">Nothing to&nbsp;notify today.</p>`;
+  return `<table class="due"><tr><th>Regime</th><th>What</th><th>Early warning</th><th>Notification</th><th>Final report</th></tr>
+    ${rows.map((r) => `<tr><td><span class="badge nis2">${r.reg}</span></td><td><b>${r.what}</b><small>${r.why}</small></td>
+      <td>${due(r.d.early_warning)}</td><td>${due(r.d.notification)}</td><td>${due(r.d.final_report)}</td></tr>`).join("")}</table>`;
 }
 
 function nis2Html(n) {
   const a = n.area_outage, f = n.financial, p = n.patching;
-  return `<div class="regime ${n.verdict === "reportable" ? "applies" : ""}"><b>NIS2 (Cyberbeveiligingswet)</b> ${verdict(n.verdict)}
-      <span class="muted">${n.incidents} incidents, ${n.significant.length} significant</span></div>
-    ${n.significant.map((x) => `<div class="regime applies"><b>${esc(x.title)}</b> <span class="muted">${esc(x.id)} · ${esc(x.why)}</span>${deadlines(x.deadlines)}</div>`).join("")}
-    <h4>Area outage</h4>
-    ${a ? `<p>${esc(a.site)} without power and&nbsp;line from ${time(a.started)} to&nbsp;${a.ended ? time(a.ended) : "now"} (${Math.round(a.minutes)}${NB}min).
-      Lost revenue about <b>${eur(a.loss_eur)}</b> from drivers turned away, giving up or&nbsp;cut&nbsp;off.
+  return `<h4>NIS2 details</h4>
+    <h5>Area outage</h5>
+    ${a ? `<p>${esc(a.site)} was without power and&nbsp;line from ${time(a.started)} to&nbsp;${a.ended ? time(a.ended) : "now"} (${Math.round(a.minutes)}${NB}min).
+      Sales lost: about <b>${eur(a.loss_eur)}</b> from drivers turned away, giving up or&nbsp;cut&nbsp;off.
       ${a.incident_id ? `Incident <a href="?incident=${encodeURIComponent(a.incident_id)}">${esc(a.incident_id)}</a>.` : ""} ${a.note ? `<span class="muted">${esc(a.note)}</span>` : ""}</p>`
-      : `<p class="muted">No area outage on this&nbsp;day.</p>`}
-    <h4>Money and&nbsp;service</h4>
-    <div class="rp-metrics"><span class="rp-metric"><span>lost revenue (day)</span><b>${eur(f.lost_revenue_eur)}</b></span>
-      <span class="rp-metric"><span>technician visits</span><b>${eur(f.field_service_eur)}</b></span>
-      <span class="rp-metric"><span>revenue</span><b>${eur(f.revenue_eur)}</b></span>
-      <span class="rp-metric"><span>uptime</span><b>${pct(n.uptime)}</b></span></div>
-    <h4>Patch management (Art.&nbsp;21: vulnerability handling)</h4>
-    <div class="rp-metrics"><span class="rp-metric"><span>releases</span><b>${p.releases}</b></span>
-      <span class="rp-metric"><span>installs ok / failed</span><b>${p.installs_ok} / ${p.installs_failed}</b></span>
-      <span class="rp-metric"><span>success rate</span><b>${pct(p.success_rate)}</b></span>
-      <span class="rp-metric"><span>rollbacks</span><b>${p.rollbacks}</b></span>
-      <span class="rp-metric"><span>chargers out for&nbsp;updates</span><b>${Math.round(p.maintenance_min)}${NB}min</b></span></div>
-    ${p.halted.length ? `<p class="bad">Halted releases: ${p.halted.map(esc).join(", ")} (${p.reverted} chargers rolled back).</p>` : ""}`;
+      : `<p class="muted">No area outage on&nbsp;this&nbsp;day.</p>`}
+    <h5>Impact today</h5>
+    ${kv([["Incidents", `${n.incidents} (${n.significant.length} significant)`], ["Uptime", pct(n.uptime)], ["Revenue", eur(f.revenue_eur)],
+      ["Sales lost to&nbsp;incidents and&nbsp;queues", eur(f.lost_revenue_eur)], ["Technician visits", eur(f.field_service_eur)]])}
+    <h5>Patch management (Art.&nbsp;21: vulnerability handling)</h5>
+    ${kv([["Releases", p.releases], ["Installs", `${p.installs_ok} ok, ${p.installs_failed} failed (${pct(p.success_rate)} success)`],
+      ["Rolled back", p.rollbacks], ["Charger time out for&nbsp;updates", hrs(p.maintenance_min)],
+      p.halted.length && ["Halted releases", `<b class="bad">${p.halted.map(esc).join(", ")}</b> (${p.reverted} chargers rolled back)`]])}`;
 }
 
 function craHtml(c) {
   const fl = c.fleet;
-  return `<div class="regime ${c.verdict === "reportable" ? "applies" : ""}"><b>CRA (Cyber Resilience Act)</b> ${verdict(c.verdict)}
-      <span class="muted">${esc(c.why)}</span></div>
-    ${c.exploited.map((x) => `<div class="regime applies"><b>${esc(x.advisory)} in&nbsp;${esc(x.version)}</b> <span class="muted">actively exploited, ${esc(x.severity)}</span>${deadlines(x.deadlines)}</div>`).join("")}
-    <div class="rp-metrics"><span class="rp-metric"><span>on latest (${esc(fl.latest ?? "–")})</span><b>${fl.on_latest} of&nbsp;${fl.stations}</b></span>
-      <span class="rp-metric"><span>missing a&nbsp;security fix</span><b class="${fl.exposed ? "bad" : ""}">${fl.exposed}</b></span>
-      <span class="rp-metric"><span>failed updates</span><b>${c.updates.installs_failed}</b></span>
-      <span class="rp-metric"><span>rolled back</span><b>${c.updates.rollbacks}</b></span></div>
-    ${c.security_fixes.length ? `<h4>Security fixes</h4><table><tr><th>Advisory</th><th>Version</th><th>Severity</th><th>Chargers patched</th><th>Median time to&nbsp;patch</th></tr>
-      ${c.security_fixes.map((x) => `<tr><td>${esc(x.advisory)}${x.exploited ? ' <span class="badge nis2">exploited</span>' : ""}</td><td>${esc(x.version)}${x.halted ? ' <b class="bad">halted, rolled&nbsp;back</b>' : ""}</td><td>${esc(x.severity)}</td><td>${x.halted ? "0" : x.patched}</td><td>${x.median_min == null ? "–" : `${Math.round(x.median_min)}${NB}min`}</td></tr>`).join("")}</table>` : ""}
-    <h4>Releases</h4>
-    <ol class="rp-timeline">${c.releases.map((r) => `<li><time>${time(r.time)}</time><span class="step">${esc(r.version)}</span>
-      <span class="rp-actor">${esc(r.bump)}</span><p>${esc(r.notes)}${r.security ? ` · security fix ${esc(r.advisory)} (${esc(r.security)})` : ""}</p></li>`).join("") || '<li class="muted">None.</li>'}</ol>`;
+  return `<h4>CRA details</h4>
+    ${kv([["On the&nbsp;latest version", `${fl.on_latest} of&nbsp;${fl.stations} chargers (${esc(fl.latest ?? "–")})`],
+      ["Missing a&nbsp;security fix", fl.exposed ? `<b class="bad">${fl.exposed} chargers</b> (newest fix in&nbsp;${esc(fl.newest_security_fix)})` : "none"],
+      ["Failed updates", c.updates.installs_failed], ["Rolled back", c.updates.rollbacks]])}
+    ${c.security_fixes.length ? `<h5>Security fixes</h5><table class="due"><tr><th>Advisory</th><th>Version</th><th>Severity</th><th>Chargers patched</th><th>Median time to&nbsp;patch</th></tr>
+      ${c.security_fixes.map((x) => `<tr><td>${esc(x.advisory)}${x.exploited ? ' <span class="badge nis2">exploited</span>' : ""}</td><td>${esc(x.version)}${x.halted ? ' <b class="bad">halted</b>' : ""}</td><td>${esc(x.severity)}</td><td>${x.halted ? "0" : x.patched}</td><td>${x.median_min == null ? "–" : `${Math.round(x.median_min)}${NB}min`}</td></tr>`).join("")}</table>` : ""}
+    <h5>Releases</h5>
+    <table class="due"><tr><th>Time</th><th>Version</th><th>Type</th><th>Notes</th></tr>
+      ${c.releases.map((r) => `<tr><td>${time(r.time)}</td><td><b>${esc(r.version)}</b></td><td>${esc(r.bump)}</td><td>${esc(r.notes)}${r.security ? ` <span class="fw-sec">${esc(r.advisory)}</span>` : ""}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">None.</td></tr>'}</table>`;
 }
 
 async function openDaily(day) {
@@ -174,7 +187,12 @@ async function openDaily(day) {
   detail.innerHTML = `<h3>Daily NIS2 and&nbsp;CRA report, ${esc(day)}</h3>
     <p class="meta">${rep.preliminary ? "So far today; the final version is&nbsp;written at&nbsp;23:55." : `Written ${fmt(rep.generated)}.`}
       Built from rules and&nbsp;our own records; no&nbsp;AI. Truckroll never sends it.</p>
-    <p><b>${esc(rep.headline)}</b></p>
+    <div class="dr-verdicts">
+      ${verdictCard("NIS2 (Cyberbeveiligingswet)", rep.nis2.verdict, `${rep.nis2.significant.length} significant of&nbsp;${rep.nis2.incidents} incidents`)}
+      ${verdictCard("CRA (Cyber Resilience Act)", rep.cra.verdict, esc(rep.cra.why))}
+    </div>
+    <h4>Due to&nbsp;the&nbsp;authority</h4>
+    ${dueTable(rep.nis2, rep.cra)}
     ${nis2Html(rep.nis2)}${craHtml(rep.cra)}`;
 }
 
