@@ -84,3 +84,4 @@ def test_lost_revenue_and_visits_are_split_by_cause():
     f = econ.summary()["fleet"]
     assert f["lost_interrupted_eur"] == pytest.approx(6.9) and f["lost_diverted_eur"] == pytest.approx(13.8)
     assert f["lost_eur"] == pytest.approx(20.7) and f["visits"] == 1 and f["margin_eur"] == -150
+    assert f["lost_interrupted_n"] == 1 and f["lost_diverted_kwh"] == 20

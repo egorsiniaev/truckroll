@@ -96,6 +96,12 @@ class Ledger:
     lost_diverted_eur: float = 0.0  # saw the wait in the app and went elsewhere
     lost_abandoned_eur: float = 0.0  # gave up in the queue
     lost_interrupted_eur: float = 0.0  # session cut short: fault, reset, outage
+    lost_diverted_kwh: float = 0.0
+    lost_abandoned_kwh: float = 0.0
+    lost_interrupted_kwh: float = 0.0
+    lost_diverted_n: int = 0  # cars
+    lost_abandoned_n: int = 0
+    lost_interrupted_n: int = 0
 
     @property
     def margin_eur(self) -> float:
@@ -161,13 +167,16 @@ class Economics:
             led = self.today[code]
             led.lost_eur += eur
             if why in ("diverted", "abandoned", "interrupted"):
-                setattr(led, f"lost_{why}_eur", getattr(led, f"lost_{why}_eur") + eur)
+                for suffix, add in (("eur", eur), ("kwh", kwh), ("n", 1)):
+                    key = f"lost_{why}_{suffix}"
+                    setattr(led, key, getattr(led, key) + add)
 
     def summary(self) -> dict:
         total = Ledger()
         for led in self.today.values():
             for k in ("energy_kwh", "solar_kwh", "grid_kwh", "revenue_eur", "cost_eur", "lost_eur", "service_eur",
-                      "visits", "lost_diverted_eur", "lost_abandoned_eur", "lost_interrupted_eur"):
+                      "visits", *(f"lost_{w}_{x}" for w in ("diverted", "abandoned", "interrupted")
+                                  for x in ("eur", "kwh", "n"))):
                 setattr(total, k, getattr(total, k) + getattr(led, k))
         return {"dynamic": self.dynamic, "day": self.day, "fleet": total.to_json(),
                 "sites": {c: {**led.to_json(), **self.rates.get(c, {})} for c, led in self.today.items()}}

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -60,7 +61,21 @@ class ToggleRequest(BaseModel):
         return bool(self.enabled if self.enabled is not None else self.on)
 
 
+WEB_VERSION_EVERY_S = 15
+
+
 def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True, guard: Guard | None = None) -> FastAPI:
+    seen = {"at": 0.0, "v": ""}
+
+    def web_version() -> str:
+        """Newest page file time: open tabs offer a reload when a deploy changed the page."""
+        if web_dir is None or not web_dir.is_dir():
+            return ""
+        if time.monotonic() - seen["at"] > WEB_VERSION_EVERY_S:
+            mtimes = (f.stat().st_mtime for f in web_dir.rglob("*") if f.is_file())
+            seen.update(at=time.monotonic(), v=str(int(max(mtimes, default=0))))
+        return seen["v"]
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         task = asyncio.create_task(hub.run()) if start_poller else None
@@ -259,7 +274,7 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True, guard:
         async def events() -> AsyncIterator[str]:
             try:
                 while not await request.is_disconnected():
-                    yield f"data: {json.dumps(hub.snapshot)}\n\n"
+                    yield f"data: {json.dumps({**hub.snapshot, 'web_version': web_version()})}\n\n"
                     await asyncio.sleep(STREAM_EVERY_S)
             finally:
                 guard.close_stream(ip)

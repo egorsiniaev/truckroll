@@ -271,7 +271,7 @@ function marginWhy(f) {
   return `Negative because ${v} cost more than charging earned after energy (${eur(energy)}). Visits come from incidents that a&nbsp;remote reset couldn’t fix.`;
 }
 
-function marginBreakdown(f) {
+function marginBreakdown(f, sites) {
   if (!f) return "";
   const unsplit = (f.lost_eur ?? 0) - (f.lost_interrupted_eur ?? 0) - (f.lost_abandoned_eur ?? 0) - (f.lost_diverted_eur ?? 0);
   const lostRow = (label, v) => `<tr><td class="muted">${label}</td><td class="muted">${eur(v)}</td></tr>`;
@@ -282,11 +282,27 @@ function marginBreakdown(f) {
       <tr><td>Technician visits (${visitCount(f)} × €150)</td><td>${eur(-(f.service_eur ?? 0))}</td></tr>
       <tr class="total"><td>Margin</td><td class="${(f.margin_eur ?? 0) < 0 ? "neg" : "pos"}">${eur(f.margin_eur)}</td></tr>
       <tr><td colspan="2" style="text-align:left"><b>Not in&nbsp;the&nbsp;margin: ${eur(f.lost_eur)} of&nbsp;sales lost</b></td></tr>
-      ${lostRow("Cut off mid-session by&nbsp;a&nbsp;fault, reset or&nbsp;outage", f.lost_interrupted_eur)}
-      ${lostRow("Gave up waiting in&nbsp;the&nbsp;queue", f.lost_abandoned_eur)}
-      ${lostRow("Saw the&nbsp;wait in&nbsp;the&nbsp;app and&nbsp;went elsewhere", f.lost_diverted_eur)}
+      ${lostRow(`Cut off mid-session by&nbsp;a&nbsp;fault, reset or&nbsp;outage${cars(f, "interrupted", "short")}`, f.lost_interrupted_eur)}
+      ${lostRow(`Gave up waiting in&nbsp;the&nbsp;queue${cars(f, "abandoned", "wanted")}`, f.lost_abandoned_eur)}
+      ${lostRow(`Saw the&nbsp;wait in&nbsp;the&nbsp;app and&nbsp;went elsewhere${cars(f, "diverted", "wanted")}`, f.lost_diverted_eur)}
       ${unsplit > 0.5 ? lostRow("Earlier today, before causes were recorded", unsplit) : ""}
-    </table>`;
+    </table>
+    ${siteLost(sites)}`;
+}
+
+// " · 12 cars, 140 kWh short" when counts exist.
+function cars(e, why, word) {
+  const n = e?.[`lost_${why}_n`];
+  return n ? `<br><small>${n} car${n === 1 ? "" : "s"}, ${Math.round(e[`lost_${why}_kwh`] ?? 0)}${NB}kWh ${word}</small>` : "";
+}
+
+function siteLost(sites) {
+  if (!sites?.length) return "";
+  const c = (v) => `€${Math.round(v ?? 0)}`;
+  return `<h4>Lost sales by&nbsp;site</h4><table class="money"><tr><th></th><th>cut off</th><th>gave up</th><th>elsewhere</th><th>total</th></tr>
+    ${sites.map((x) => { const e = x.economics || {}; return `<tr><td>${esc(x.code)}</td><td>${c(e.lost_interrupted_eur)}</td><td>${c(e.lost_abandoned_eur)}</td><td>${c(e.lost_diverted_eur)}</td><td><b>${c(e.lost_eur)}</b></td></tr>`; }).join("")}</table>
+    ${sites.some((x) => { const e = x.economics || {}; return (e.lost_eur ?? 0) - (e.lost_interrupted_eur ?? 0) - (e.lost_abandoned_eur ?? 0) - (e.lost_diverted_eur ?? 0) > 0.5; })
+      ? `<p class="meta">Totals include sales lost earlier today, before causes were recorded.</p>` : ""}`;
 }
 
 function fleetMoney(snapshot) {
@@ -398,11 +414,16 @@ const KPI_INFO = {
   margin: {
     title: "Margin today",
     what: [
-      ["What margin is", "Charging sales minus the cost of grid energy and technician visits, since local midnight (or service start). Solar is free."],
+      ["What margin is", "Charging sales minus the cost of grid energy and technician visits, since local midnight (or service start)."],
+      ["Charging sales", "Every kWh delivered to a car times the tariff at that moment. Public sites have a list price that follows power prices; depot and office contracts are the cost of power plus a fixed markup."],
+      ["Grid energy", "Every kWh taken from the grid times the day-ahead price plus €0.11 of fees and taxes. Solar is free; charging a site battery from the grid counts as cost now and saves cost later."],
       ["Technician visits", "€150 each. Sent when a fault comes back after a remote reset, a charger stays offline for 10 min, or the AI agent is sure one is needed. These are questions that go ahead when nobody answers, so on a day with many incidents they add up fast."],
-      ["Lost revenue", "Money never earned, so it is not subtracted from the margin. It is why sales are lower than they could be. Incidents drive most of it: a faulted, offline, rebooting or updating charger can't serve, so cars queue, give up or go elsewhere."],
+      ["Lost sales", "Money never earned, so it is not subtracted from the margin; it is why sales are lower than they could be. Valued as the kWh the driver still needed times the tariff at that moment."],
+      ["Cut off mid-session", "A fault, a reset, a reboot loop or a site outage ended the session before the car was full. Counts only the kWh still missing. Almost always an incident."],
+      ["Gave up in the queue", "The driver waited longer than their patience (minutes for public drivers, hours for fleet vans) and left. Queues grow when chargers are down for incidents, updates or outages, or when the grid cap slows everyone."],
+      ["Went elsewhere", "Public drivers check the expected wait in the app before coming; the longer the wait, the more of them pick another operator. Counts the whole charge they wanted."],
     ],
-    extra: (s) => marginBreakdown(s.economics?.fleet),
+    extra: (s) => marginBreakdown(s.economics?.fleet, s.sites),
     rows: (s) => s.sites.map((x) => {
       const e = x.economics || {};
       const n = visitCount(e);

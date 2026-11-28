@@ -231,8 +231,14 @@ function renderHeader() {
     document.getElementById("clock").innerHTML = `${esc(d.date)}, ${esc(d.local_time)} Amsterdam <span class="phase-pill">${PHASE_LABEL[phase] ?? phase}${sun ? ` · ${esc(sun)}` : ""}</span>`;
   }
   const errs = Object.keys(snapshot.upstream_errors || {});
-  live.className = `live ${errs.length ? "err" : "ok"}`;
-  live.textContent = errs.length ? `degraded: ${errs.join(", ")}` : "live";
+  if (outdated) {
+    live.className = "live err reload";
+    live.textContent = "new version: click to reload";
+    live.onclick = () => location.reload();
+  } else {
+    live.className = `live ${errs.length ? "err" : "ok"}`;
+    live.textContent = errs.length ? `degraded: ${errs.join(", ")}` : "live";
+  }
   renderScenario(snapshot);
   if (snapshot.grafana_url) document.getElementById("grafana").href = snapshot.grafana_url;
 }
@@ -466,6 +472,9 @@ async function showHandover() {
   document.getElementById("handover-close").onclick = () => { box.hidden = true; };
 }
 
+let pageVersion = null;
+let outdated = false;
+
 async function start() {
   meta = await (await fetch("/api/meta")).json();
   snapshot = await (await fetch("/api/state")).json();
@@ -475,7 +484,15 @@ async function start() {
   // ?static renders one snapshot without the live stream (used for screenshots).
   if (new URLSearchParams(location.search).has("static")) return;
   const es = new EventSource("/api/stream");
-  es.onmessage = (msg) => { snapshot = JSON.parse(msg.data); render(); };
+  es.onmessage = (msg) => {
+    snapshot = JSON.parse(msg.data);
+    // A deploy changed the page files: this tab runs old code until it reloads.
+    if (snapshot.web_version) {
+      pageVersion ??= snapshot.web_version;
+      outdated = snapshot.web_version !== pageVersion;
+    }
+    render();
+  };
   es.onerror = () => { live.className = "live err"; live.textContent = "reconnecting…"; };
 }
 
