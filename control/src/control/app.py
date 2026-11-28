@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -165,6 +166,29 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True, guard:
         except KeyError:
             raise HTTPException(404, "draft the report first") from None
 
+    def _today() -> str:
+        from datetime import UTC, datetime
+
+        from control.uptime import TZ
+        return datetime.now(UTC).astimezone(TZ).strftime("%Y-%m-%d")
+
+    @app.get("/api/daily")
+    async def daily_list():
+        today = _today()
+        rows = [] if hub.reports.get_daily(today) else [hub.daily_report(today)]
+        rows += [r for d in hub.reports.daily_days()[:60] if (r := hub.reports.get_daily(d))]
+        return {"days": [{"day": r["day"], "headline": r["headline"], "preliminary": r["preliminary"],
+                          "nis2": r["nis2"]["verdict"], "cra": r["cra"]["verdict"]} for r in rows]}
+
+    @app.get("/api/daily/{day}")
+    async def daily_get(day: str):
+        saved = hub.reports.get_daily(day) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else None
+        if saved:
+            return saved
+        if day == _today():
+            return hub.daily_report(day)
+        raise HTTPException(404, f"no daily report for {day}")
+
     @app.get("/api/summary")
     async def summary(since: str):
         from datetime import UTC, datetime
@@ -320,6 +344,8 @@ def create_app(hub: Hub, web_dir: Path | None, start_poller: bool = True, guard:
 
     @app.post("/api/scenarios/{scenario_id}/start")
     async def start_scenario(scenario_id: str):
+        if scenario_id not in {s["id"] for s in hub.runner.catalog()}:
+            raise HTTPException(404, f"unknown scenario {scenario_id}")  # scheduled ones run on their own
         try:
             status = hub.runner.start(scenario_id, hub.snapshot.get("stations", []))
         except KeyError:

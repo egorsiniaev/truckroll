@@ -178,8 +178,9 @@ class TriageAgent:
 
     async def tick(self, manager, snap: dict) -> None:
         """Triage at most one new incident per call. The manager records the verdict and proposes the next step."""
+        # Firmware rollout incidents have a known cause (our own update): nothing to triage.
         todo = [i for i in manager.snapshot() if i["status"] != "recovered" and i["id"] not in self.done
-                and i["age_s"] >= WAIT_BEFORE_TRIAGE_S]
+                and i["age_s"] >= WAIT_BEFORE_TRIAGE_S and not i["kind"].startswith("firmware")]
         if not todo or not self._budget_ok():
             return
         inc = max(todo, key=lambda i: i["age_s"])  # oldest first

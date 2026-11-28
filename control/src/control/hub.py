@@ -18,8 +18,10 @@ from control.controller import SiteController
 from control.daylight import daylight
 from control.decisions import DecisionBook
 from control.demand import DemandEngine
+from control.disruption import OutagePlanner
 from control.economics import Economics, demand_factor
 from control.fieldservice import FieldService
+from control.firmware import FirmwareManager
 from control.incidents import IncidentManager
 from control.limits import SOURCE_LABELS, LimitArbiter
 from control.persist import Clocks
@@ -42,6 +44,8 @@ FEEDS_EVERY_S = 30  # weather and prices: each has its own cadence inside
 PRICES_EVERY_S = 3600
 PRICES_RETRY_S = 600
 SAVE_EVERY_S = 60
+FIRMWARE_EVERY_S = 10
+DAILY_REPORT_AT = (23, 55)  # local: the day's NIS2/CRA report is written just before midnight
 MAX_EVENTS = 80
 
 
@@ -105,11 +109,21 @@ class Hub:
         self.state_path = self.ledger_path.with_name("state.json") if self.ledger_path else None
         self.demand = DemandEngine(self.sites, self.clients, self.id_tags,
                                    on_lost=lambda site, kwh: self.economics.lost(site, kwh, self.prices))
+        self._fw_events: list[dict] = []
+        self.firmware = FirmwareManager(self.sites, self.clients,
+                                        self.ledger_path.with_name("firmware.jsonl") if self.ledger_path else None,
+                                        on_event=self._fw_events.append)
+        self.incidents.firmware = self.firmware
+        self.outages = OutagePlanner([s["code"] for s in self.sites], self.runner, self._lost_today)
         self._load_state()  # last: needs every component above
         if self.history_path is not None and not self.history_path.exists():
             # First run with a history file: seed it with the recently closed incidents still in memory.
             for inc in reversed(self.incidents.closed):
                 self._append_history(inc.to_json(self.incidents.clock()))
+
+    def _lost_today(self, code: str) -> float:
+        led = self.economics.today.get(code)
+        return led.lost_eur if led else 0.0
 
     def _append_history(self, incident: dict) -> None:
         if self.history_path is None:
@@ -175,6 +189,8 @@ class Hub:
             "fixes": sorted(self._fixes_applied),
             "demand": self.demand.to_state(clocks),
             "incidents": self.incidents.to_state(clocks),
+            "firmware": self.firmware.to_state(),
+            "outages": self.outages.to_state(),
         }
         try:
             tmp = self.state_path.with_suffix(".tmp")
@@ -217,6 +233,10 @@ class Hub:
                 self.book.from_state(data["decisions"], clocks)
             if "field" in data:
                 self.field.from_state(data["field"], clocks)
+            if "firmware" in data:
+                self.firmware.from_state(data["firmware"])
+            if "outages" in data:
+                self.outages.from_state(data["outages"])
         except (KeyError, TypeError, ValueError) as exc:
             log.warning("could not restore queue/incidents, starting them fresh: %s", exc)
         self._fixes_applied = set(data.get("fixes", []))
@@ -343,7 +363,11 @@ class Hub:
             site["rules"] = [r.__dict__ for r in self.world.rules if r.site == site["code"]]
             site["controller"] = self.controller.status().get(site["code"])
         sessions = self.demand.session_info({s["id"]: s for s in snap["stations"]})
+        installing = {i.station: i for i in self.firmware.installs.values()}
         for st in snap["stations"]:
+            st["firmware"] = self.firmware.versions.get(st["id"])
+            if (job := installing.get(st["id"])) is not None:
+                st["firmware_job"] = {"phase": job.phase, "to": job.target}
             st["limit_sources"] = {SOURCE_LABELS.get(k, k): v for k, v in self.limits.sources_for(st["id"]).items()}
             for c in st.get("connectors", []):
                 c["session"] = sessions.get(f"{st['id']}#{c['id']}")
@@ -380,6 +404,8 @@ class Hub:
             "field_jobs": [j.to_json() | {"in_s": max(0, round(j.done_at - time.monotonic()))}
                            for j in self.field.jobs.values() if j.status != "done"],
             "decisions": self.book.snapshot(),
+            "firmware": self.firmware.status(),
+            "area_outage": self.outages.status(),
             "agent": self.agent.status() if self.agent is not None else None,
         }
 
@@ -406,6 +432,7 @@ class Hub:
                     self.add_event("info", f"startup: cleared {len(cleared)} leftover power limits")
             await self.limits.retry_pending({s["id"] for s in snap["stations"] if s.get("connected")})
             await self.incidents.observe(snap)
+            await self._drain_firmware()
             await self.field.tick(self.incidents)
             if self._due_now("controller", CONTROLLER_EVERY_S):
                 for ev in await self.controller.tick(snap):
@@ -415,11 +442,43 @@ class Hub:
                 await self.tick_world(snap)
             if self._due_now("save", SAVE_EVERY_S):
                 self._save_state()
+            outage = self.outages.tick(snap["stations"])  # before the autopilot: today's outage goes first
+            if outage:
+                self.add_event("error" if "power and line down" in outage else "info", outage, kind="scenario")
+            self._daily_report_due()
             started = self.autopilot.tick(snap["stations"])
             if started:
                 self.add_event("info", f"autopilot picked a random scenario: {started}", kind="scenario")
         except UpstreamError as exc:
             self.add_event("error", f"automatic action failed: {exc}")
+
+    async def _drain_firmware(self) -> None:
+        events, self._fw_events[:] = list(self._fw_events), []
+        levels = {"install_failed": "error", "release_failing": "error", "rolled_back": "ok", "reverted": "ok",
+                  "release_halted": "error"}
+        for ev in events:
+            if ev["type"] != "installed" and ev["type"] != "install_started":  # per-charger noise stays in the log
+                self.add_event(levels.get(ev["type"], "info"), f"firmware: {ev['text']}", ev.get("site"),
+                               ev.get("station"), kind="firmware")
+            await self.incidents.firmware_event(ev)
+
+    # ---- daily NIS2 / CRA report ---------------------------------------------------------
+    def daily_report(self, day: str, preliminary: bool = True) -> dict:
+        from control.compliance import daily
+        today = self.economics.day == day
+        return daily(day, self.history(), self.firmware.history(day), self.outages.for_day(day),
+                     self.firmware.versions, [r.public() for r in self.firmware.releases],
+                     self.economics.summary() if today else None,
+                     self.uptime.summary()["fleet"] if self.uptime.day == day else None, _now_iso(), preliminary)
+
+    def _daily_report_due(self) -> None:
+        from control.uptime import TZ
+        local = datetime.now(UTC).astimezone(TZ)
+        day = local.strftime("%Y-%m-%d")
+        if (local.hour, local.minute) >= DAILY_REPORT_AT and self.reports.get_daily(day) is None:
+            rep = self.daily_report(day, preliminary=False)
+            self.reports.save_daily(rep)
+            self.add_event("info", f"daily NIS2/CRA report for {day}: {rep['headline']}", kind="report")
 
     def _flex_requests(self) -> None:
         requested = self.limits.stations_for("grid-operator")
@@ -445,6 +504,10 @@ class Hub:
         for text in await self.demand.tick(snap, self.world.shares(), factors):
             self.add_event("info", text, kind="demand")
 
+    async def firmware_once(self) -> None:
+        if self.snapshot.get("stations"):
+            await self.firmware.tick(self.snapshot["stations"])
+
     async def agent_once(self) -> None:
         if self.agent is not None and self.snapshot.get("stations"):
             await self.agent.tick(self.incidents, {**self.snapshot, "events": list(self.events), "prices": self.prices})
@@ -466,7 +529,8 @@ class Hub:
         # 2 s poll that keeps the map, detection and decisions current.
         side = [asyncio.create_task(self._loop("demand", self.demand_once, DEMAND_EVERY_S)),
                 asyncio.create_task(self._loop("agent", self.agent_once, AGENT_EVERY_S)),
-                asyncio.create_task(self._loop("feeds", self.feeds_once, FEEDS_EVERY_S))]
+                asyncio.create_task(self._loop("feeds", self.feeds_once, FEEDS_EVERY_S)),
+                asyncio.create_task(self._loop("firmware", self.firmware_once, FIRMWARE_EVERY_S))]
         try:
             await self._loop("poll", self.poll_once, POLL_S)
         finally:

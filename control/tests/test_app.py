@@ -212,6 +212,9 @@ async def test_uptime_money_and_battery_survive_a_restart(tmp_path):
     from control.demand import Car
     hub.demand.state["A2-HUB"].queue.append(Car(1, "A2-HUB", 9000, hub.demand.clock(), 600, "T"))
     inc = hub.incidents._new("fault:A2-HUB-00001", "fault", "critical", "boom", "A2-HUB", ["A2-HUB-00001"])
+    hub.firmware.maybe_cut()
+    hub.firmware.versions["A2-HUB-00001"] = hub.firmware.latest
+    hub.outages.plan = {"day": "2026-11-30", "site": "A2-HUB", "at": 1.0}
     hub._save_state()
 
     again = make()
@@ -220,6 +223,8 @@ async def test_uptime_money_and_battery_survive_a_restart(tmp_path):
     assert again.batteries.batteries["A2-HUB"].soc_kwh == 123.0
     assert len(again.demand.state["A2-HUB"].queue) == 1
     assert again.incidents.open["fault:A2-HUB-00001"].id == inc.id
+    assert again.firmware.versions["A2-HUB-00001"] == hub.firmware.latest
+    assert again.outages.plan["site"] == "A2-HUB"
 
 
 async def test_slo_summary_and_decision_api(ctx):
@@ -235,3 +240,22 @@ async def test_slo_summary_and_decision_api(ctx):
     assert ("reset", "A2-HUB-00001") in clients.csms.calls
     assert inc.timeline[-1]["actor"] == "operator" and "approved" in inc.timeline[-1]["text"]
     assert (await client.post("/api/hitl", json={"enabled": False})).json()["result"]["enabled"] is False
+
+
+async def test_daily_compliance_report_and_firmware_on_the_page(ctx):
+    client, _, hub = ctx
+    days = (await client.get("/api/daily")).json()["days"]
+    assert days[0]["preliminary"] is True and days[0]["nis2"] == "nothing to report"
+    today = days[0]["day"]
+    body = (await client.get(f"/api/daily/{today}")).json()
+    assert {"nis2", "cra", "headline"} <= body.keys()
+    assert (await client.get("/api/daily/1999-01-01")).status_code == 404
+    assert (await client.get("/api/daily/..%2Fsecrets")).status_code == 404
+    assert "firmware" in hub.snapshot and "area_outage" in hub.snapshot
+
+
+async def test_scheduled_outages_are_not_on_the_panel_or_the_api(ctx):
+    client, _, _ = ctx
+    ids = {s["id"] for s in (await client.get("/api/meta")).json()["scenarios"]}
+    assert not any(i.startswith("area-outage") for i in ids)
+    assert (await client.post("/api/scenarios/area-outage-a2-hub/start")).status_code == 404

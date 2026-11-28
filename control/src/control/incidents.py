@@ -130,6 +130,7 @@ class IncidentManager:
         self.over_limit_since: dict[str, float] = {}  # station -> when it went above its limit
         self.meter_diag: dict[str, str] = {}  # station -> evidence for a drift incident
         self.field = None  # FieldService, set by the hub
+        self.firmware = None  # FirmwareManager, set by the hub
         self.on_closed = None  # callable(incident json), e.g. to append to a history file
         self.open: dict[str, Incident] = {}  # key -> incident
         self.closed: deque[Incident] = deque(maxlen=KEEP_CLOSED)
@@ -266,6 +267,9 @@ class IncidentManager:
                                "Restarted the stuck backend worker.", "worker restart"),
             "calibration": (None, "Meter calibration visit booked (simulated). Sessions stay on billing hold.",
                             "calibration"),
+            "halt_release": (lambda: self.firmware.halt(params["version"]),
+                             "Release halted: no new installs; chargers already on it roll back to their previous "
+                             "image as soon as they are free.", "rollback"),
             "vendor_ticket": (None, "Firmware ticket opened with the charger vendor (simulated), with the impossible "
                                     "readings attached.", "vendor ticket"),
         }
@@ -572,6 +576,48 @@ class IncidentManager:
         elif ev["kind"] == "released" and key in self.open:
             self._close(key, f"Demand fell to {kw(ev['demand_w'])}; limits lifted. Peak was {kw(ev['peak_w'])}.",
                         "auto-rule", short="limits lifted")
+
+    async def firmware_event(self, ev: dict) -> None:
+        """Failed installs and failing releases from the firmware rollout. Cause is known: our own update."""
+        kind = ev["type"]
+        if kind == "install_failed":
+            key = f"fw:{ev['station']}"
+            if key in self.open:
+                return
+            inc = self._new(key, "firmware_update", "warning", f"{ev['station']}: firmware {ev['to']} install failed",
+                            ev["site"], [ev["station"]])
+            inc.add("detected", f"Update {ev['from']} -> {ev['to']} ({ev['kind']}) failed: {ev['reason']}.",
+                    short="update failed")
+            inc.add("response", f"Automatic rollback to {ev['from']}: the charger boots its previous image and stays "
+                                f"out of service until it checks out.", "auto-rule", short="rollback")
+        elif kind == "rolled_back" and (key := f"fw:{ev['station']}") in self.open:
+            self._close(key, f"Back on {ev['to']} and in service.", "auto-rule", short="rolled back")
+        elif kind == "release_failing":
+            key = f"fw-release:{ev['version']}"
+            if key in self.open:
+                self.open[key].add("update", f"{ev['failed']} of {ev['tried']} installs failed so far.", short="more fails")
+                return
+            inc = self._new(key, "firmware_release", "critical", f"Firmware {ev['version']} failing on chargers", "ALL",
+                            ev["stations"])
+            inc.add("detected", f"{ev['failed']} of {ev['tried']} installs of {ev['version']} failed; "
+                                f"{len(ev['stations'])} chargers already run it.", short="bad release")
+            await self._ask(inc, "halt_release", {"version": ev["version"]}, f"Halt firmware {ev['version']} and roll "
+                            f"back the {len(ev['stations'])} chargers on it?",
+                            "Each rollback takes a free charger out of service for 1-3 min.", default="approve",
+                            timeout_s=90)
+        elif kind == "release_halted" and (key := f"fw-release:{ev['version']}") in self.open:
+            if not ev["stations"]:
+                self._close(key, "Halted; no charger was left on it.", "auto-rule", short="halted")
+            else:
+                self.open[key].status = "monitoring"
+                self.open[key].add("update", f"{len(ev['stations'])} chargers roll back when free.", short="rolling back")
+        elif kind == "reverted" and (key := f"fw-release:{ev['from']}") in self.open and not ev.get("remaining"):
+            self._close(key, f"Every charger is off {ev['from']}.", "auto-rule", short="rolled back")
+        elif kind == "release":
+            for key in [k for k, i in self.open.items() if k.startswith("fw-release:")
+                        and "halt_release" in i.memo.get("declined", [])]:
+                self._close(key, f"Kept running by choice; superseded by {ev['version']}.", "operator",
+                            short="superseded")
 
     def flex_request(self, site: str, active: bool, stations: int = 0, text: str = "") -> None:
         key = f"flex:{site}"

@@ -33,6 +33,7 @@ class Scenario:
     cleanup: Callable[[Ctx], Awaitable[None]]
     icon: str = "⚠️"
     sites: tuple[str, ...] = ()  # where it happens; picked stations are added at run time
+    scheduled: bool = False  # run by a planner, not offered on the panel or picked by the autopilot
 
 
 @dataclass
@@ -270,6 +271,21 @@ def _reconnect_storm(c: Ctx) -> list[Step]:
             Step(20, "network back: 50 stations reconnect at once", all_up)]
 
 
+AREA_OUTAGE_S = 1800
+ALL_SITES = ("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE")
+
+
+def _area_outage(code: str):
+    def plan(c: Ctx) -> list[Step]:
+        return [Step(0, f"grid fault in the area: {code} loses power and its line", _outage(code, True)),
+                Step(AREA_OUTAGE_S, "grid operator restores the area", _outage(code, False))]
+    return plan
+
+
+def area_outage_id(code: str) -> str:
+    return f"area-outage-{code.lower()}"
+
+
 async def _noop(c: Ctx) -> None:
     return None
 
@@ -307,6 +323,9 @@ SCENARIOS: tuple[Scenario, ...] = (
              "network: core blip followed by mass reconnect", 60, _reconnect_storm,
              _clear_sites(*("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE")), "🌐",
              ("AMS-DEPOT", "UTR-RETAIL", "A2-HUB", "EHV-OFFICE")),
+    *(Scenario(area_outage_id(code), f"Area outage at {code}", f"A grid fault takes out {code} for 30 minutes.",
+               f"network: area-wide power and line outage at {code}", AREA_OUTAGE_S + 30, _area_outage(code),
+               _clear_sites(code), "🏙️", (code,), scheduled=True) for code in ALL_SITES),
 )
 
 
@@ -354,7 +373,7 @@ class Runner:
 
     def catalog(self) -> list[dict]:
         return [{"id": s.id, "title": s.title, "description": s.description, "duration_s": s.duration_s,
-                 "icon": s.icon} for s in SCENARIOS]
+                 "icon": s.icon} for s in SCENARIOS if not s.scheduled]
 
     def status(self) -> dict:
         if not self.current:

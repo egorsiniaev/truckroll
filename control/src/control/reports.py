@@ -31,7 +31,8 @@ def _t(iso: str) -> datetime:
 
 def applicability(inc: dict) -> dict:
     """Which reporting regimes apply, and why. Deliberately conservative and explainable."""
-    duration = inc.get("ttr_s") or inc.get("age_s") or 0
+    # From the first symptom, not the alert: a 30 min outage is 30 min even if detection took a few seconds.
+    duration = (inc.get("ttr_s") or inc.get("age_s") or 0) + ((inc.get("metrics") or {}).get("ttd_s") or 0)
     reasons = []
     if inc["kind"] == "site_outage" and duration >= SIGNIFICANT_SITE_OUTAGE_S:
         reasons.append(f"a whole site was unavailable for {duration // 60} min")
@@ -100,6 +101,28 @@ class Reports:
         p = self._path(report["incident_id"])
         if p:
             p.write_text(json.dumps(report, indent=1))
+
+    def _daily_path(self, day: str) -> Path | None:
+        return self.folder / f"daily-{day}.json" if self.folder else None
+
+    def save_daily(self, report: dict) -> None:
+        p = self._daily_path(report["day"])
+        if p:
+            p.write_text(json.dumps(report, indent=1))
+
+    def get_daily(self, day: str) -> dict | None:
+        p = self._daily_path(day)
+        if p and p.exists():
+            try:
+                return json.loads(p.read_text())
+            except json.JSONDecodeError:
+                return None
+        return None
+
+    def daily_days(self) -> list[str]:
+        if not self.folder:
+            return []
+        return sorted((p.stem.removeprefix("daily-") for p in self.folder.glob("daily-*.json")), reverse=True)
 
     def approve(self, incident_id: str, part: str, by: str = "operator") -> dict:
         rep = self.get(incident_id)
